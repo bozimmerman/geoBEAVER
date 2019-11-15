@@ -1,0 +1,474 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;******************************
+;*  S/geoBExport
+;*
+;******************************
+
+.if 	Pass1
+.noeqin
+.noglbl
+.include	GEOSequates
+		LineNum = $8879
+.eqin
+.glbl
+.endif
+	.psect
+	jmp	Export	; VPRGbase + 0
+
+ExDraw:	ldb	ExSel,#3
+	jsr	ExUpdate
+	ldb	R2L,#$82
+	ldw	R3,#$51
+	ldb	R2H,#$90
+	ldw	R4,#$d6
+	lda	#$ff
+	jsr	FrameRectangle
+	rts
+
+ExUpdate:	ldb	Temp,#0	; counter, this routine
+	ldb	R2L,#$38
+10$:	ldw	R3,#114
+	mvb	R2L,R2H
+	avb	#10,R2H
+	mvw	R3,R4
+	avw	#10,R4
+	lda	#$ff
+	jsr	FrameRectangle
+	cpb	Temp,ExSel
+	beq	11$
+	lda	#0
+	jsr	SetPattern	; set a clear pattern
+	bra	12$
+11$:	lda	#1
+	jsr	SetPattern
+12$:	inc	R2L
+	dec	R2H
+	inw	R3
+	dew	R4	; is this necessary? I doubt it...
+	jsr	Rectangle
+	avb	#13,R2L
+	inc	Temp
+	cbi	Temp,#4
+	blt	10$
+	rts
+
+Export:	cwi	EndOData,#DataStart	 ; anything to export?
+	bne	97$
+	jmp	UnWk
+97$:	ldw	R0,#21
+	ldw	R1,#FName	; clear out filename
+	jsr	ClearRam
+	ldw	R15,#FName
+	ldw	R0,#Dialog	; and prompt for a new one
+	jsr	DoDlgBox
+	cbi	FName,#0	; no filename
+	beq	98$
+	cbi	sysDBData,#2
+	bne	10$	; ok to go	
+98$:	rts
+10$:	ldw	A2,#CTxt0	; start the create
+	jsr	WkBox
+	jsr	PStackPrep	; prepare the picture stack
+	jsr	i_CreatWF
+	.word	FName
+	cpx	#0
+	bne	99$
+	jsr	ExScrn	; handle screen mode
+	bne	99$
+	jsr	ExMenu	; handle menu output
+	bne	99$
+	jsr	ExDlg	; handle dialog boxes
+	bne	99$
+	cwi	PSPtr,#PStack	; have we written any pictures?
+	beq	11$
+	ldw	A2,#CTxt2	; yes, so start the write of them
+	jsr	WkBox
+	jsr	ScnPics	; lastly, put the pictures
+	bne	99$
+11$:	jsr	i_PutWString	; put out the end
+	.word	THEEND
+	jsr	i_CloseWF	; close the last page normally
+	.word	FName
+99$:	jsr	FError	; .x is an error return
+	jmp	UnWk
+THEEND:	.byte	"; that's all folks!",13,0
+
+WkBox:	ldb	dispBufferOn,#ST_WR_FORE
+	ldw	R3,#120
+	ldw	R4,#210
+	ldb	R2L,#85
+	ldb	R2H,#125
+	lda	#1
+	jsr	SetPattern
+	jsr	Rectangle
+	ldw	R3,#110
+	ldw	R4,#200
+	ldb	R2L,#80
+	ldb	R2H,#120
+	lda	#0
+	jsr	SetPattern
+	jsr	Rectangle
+	lda	#$ff
+	jsr	FrameRectangle
+	ldb	R1H,#103
+	mvw	A2,R0
+	ldw	R11,#115
+	jsr	PutString
+	rts
+
+UnWk:	ldw	R3,#110
+	ldw	R4,#210
+	ldb	R2L,#80
+	ldb	R2H,#125
+	jsr	RecoverRectangle
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	rts
+
+EPress:	ldb	Temp,#0	; counter, this routine
+	ldb	R2L,#$38
+	ldw	R3,#114
+10$:	mvb	R2L,R2H
+	avb	#10,R2H
+	mvw	R3,R4
+	avw	#10,R4
+	jsr	IsMseInRegion
+	cmp	#$ff
+	bne	11$
+	cpb	Temp,ExSel
+	beq	11$
+	mvb	Temp,ExSel
+	jmp	ExUpdate
+11$:	avb	#14,R2L
+	inc	Temp
+	cbi	Temp,#4
+	blt	10$
+	rts
+
+Nxt2Digits:	jsr	Put2Digits
+	beq	11$
+	rts
+11$:	dew	A2
+	dew	A2	; go back to start
+	jmp	Inc2Digits
+
+Put2Digits:	ldy	#2	; put the table digits
+	lda	#0
+	sta	(A2),y	; put the silly Zero
+	jsr	PutWString	; treat it like a string...
+	rts
+
+Inc2Digits:	ldy	#1
+	lda	(A2),y
+	cmp	#'9'	; is it time to flip 10 place?
+	beq	13$
+	clc		; no, so just add one and go on
+	adc	#1
+	sta	(A2),y
+12$:	ldx	#0
+	rts		; and exit with a smile
+13$:	lda	'0'
+	sta	(A2),y	; store Zero for 10 inc
+	dey
+	lda	(A2),y	; get the 10 place
+	clc
+	adc	#1	; add to it
+	sta	(A2),y
+	bra	12$	; and exit
+	
+
+PutHexB:	sta	HexSave	; put the number in .a
+	ldw	A2,#HexBuf+1	; point to where we want it to go
+	lda	HexSave	; get our number back
+	jsr	HexB	; convert it to the hex digits
+	ldw	A2,#HexBuf	; back-up to the $
+	jmp	PutWString	; and stringify it
+
+PutHexBc:	jsr	PutHexB
+	bne	10$
+	jsr	i_PutWByte
+	.byte	","
+10$:	rts
+
+PutHexWc:	jsr	PutHexW
+	bne	10$
+	jsr	i_PutWByte
+	.byte	","
+10$:	rts
+
+PutHexBn:	sta	HexSave	; put the number in .a
+	ldw	A2,#HexBuf+1	; point to where we want it to go
+	lda	HexSave	; get our number back
+	jsr	HexB	; convert it to the hex digits
+	ldw	A2,#HexBuf+1	; now put it out
+	jmp	PutWString	; and stringify it
+
+PutHexW:	ldw	A2,#HexBuf+1	; put the number in A3L, A3H
+	jsr	HexW	; convert it to 4 digits
+	ldw	A2,#HexBuf	; point back to the $
+	jmp	PutWString	; and send it out
+
+HexW:	lda	A3H	; do the high bytes first
+	jsr	HexB	; put the high bytes in BlkBuf+1,+2
+	inw	A2
+	inw	A2	; now point to BlkBuf +3,+4
+	lda	A3L	; get the low order byte
+	jsr	HexB	; and write them out
+	dew	A2
+	dew	A2	; back up to where we started...
+	rts
+
+HexB:	sta	HexSave	; save it for a sec
+	lsr	a
+	lsr	a
+	lsr	a
+	lsr	a	; get the high nibble
+	tay
+	lda	HexTable,y
+	ldy	#0
+	sta	(A2),y	; store the high nibble digit
+	lda	HexSave
+	and	#$0f	; mask out low nibble
+	tay
+	lda	HexTable,y	; gimmi a digit
+	ldy	#1
+	sta	(A2),y	; store the low nibble digit
+	iny
+	lda	#0
+	sta	(A2),y	; store the string terminator
+	rts			
+
+HexTable:	.byte	'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'
+HexBuf:	.byte	'$',0,0,0,0,0,0
+
+LookinFor:	sta	Look4
+12$:	cpw	A1,EndOData
+	bne	13$
+	ldx	#0
+	rts		; beq is NOT found
+13$:	ldy	#0
+	lda	(A1),y
+	sta	ThisCode	; store the code for later
+	cmp	Look4	; only doing clickboxes here...
+	bne	14$
+	ldx	#$ff	; bne is found
+	rts
+14$:
+KeepLookin:
+	ldy	#2	; go onto the next thing
+	lda	(A1),y
+	sta	Temp	; so get the increment bytes
+	iny
+	lda	(A1),y
+	sta	Temp+1	; and the high increment byte
+	adw	Temp,A1	; add it in!
+	lda	Look4
+	jmp	LookinFor	; and go up to check the next one
+
+
+NxtItem:	cpw	A0,EndOData
+	blt	10$
+	rts
+10$:	ldy	#2	; get this items length
+	lda	(A0),y
+	sta	NextTmp
+	iny
+	lda	(A0),y	; and store it in NxtTmp
+	sta	NextTmp+1
+	adw	NextTmp,A0	; add it to A0
+	rts
+
+Dialog:	.byte	$00 | 01	;user position
+	.byte	$1d	;top
+	.byte	$ac	;bottom
+	.word	$045	;left
+	.word	$0e6	;right
+	.byte	19	;user subroutine
+	.word	ExDraw
+	.byte	11	;add text
+	.byte	$0e,$0d
+	.word	DBTextA
+	.byte	$01,$02,$7a	;OK icon
+	.byte	$02,$0d,$7a	;Cancel icon
+	.byte	11	;add text
+	.byte	$0e,$61
+	.word	DBTextB
+	.byte	11	;add text
+	.byte	$40,$22
+	.word	TTxtB
+	.byte	11	;add text
+	.byte	$40,$2f
+	.word	TTxtC
+	.byte	11	;add text
+	.byte	$40,$3e
+	.word	TTxtD
+	.byte	11	;add text
+	.byte	$40,$4d
+	.word	TTxtE
+	.byte	13	;GetString
+	.byte	$10	;XOffset
+	.byte	$68	;YOffset
+	.byte	$20	;gives r15 to contain pntr to text buffer. 5-10
+	.byte	16	;maximum # of chars to accept.
+	.byte	17	;Routine on Click
+	.word	EPress	;routine to execute on otherPress
+	.byte	0	;end of defintion
+DBTextA:	.byte	$18,"Select Export options:",27,0
+DBTextB:	.byte	$18,"Filename:",27,0
+
+PStackPrep:
+	ldw	PSPtr,#PStack
+	rts
+PStackAdd:	mvw	PSPtr,R2	; point new entry to R2
+	ldy	#0
+	lda	PSAdd	; get lsb
+	sta	(R2),y	; add it
+	iny
+	lda	PSAdd+1	; get msg
+	sta	(R2),y	; add it
+	inw	PSPtr	; inw PSPtr twice
+	inw	PSPtr	; inw PSPtr twice
+PStackLk:	ldx	#0	; **now get the NUMBER of new one
+	mvw	PSAdd,PSNewE
+	mvw	PSAdd,R2	; ** to get the num, setup first
+	ldy	#2
+	lda	(R2),y	; save the siZe of the new one
+	sta	PSNewSz
+	iny
+	lda	(R2),y
+	sta	PSNewSz+1	; in PSNewSz
+	adw	PSNewSz,PSNewE
+	dew	PSNewE	; now have pointer to end of NewOne
+	ldw	R2,#PStack
+PSChkLp:	ldy	#0
+	lda	(R2),y
+	sta	R4L
+	iny
+	lda	(R2),y
+	sta	R4H
+	cpw	R4,PSAdd
+	bne	12$
+11$:	txa		; got it, so put it in .a and leave
+	rts
+12$:	ldw	PSNewCt,#6	; now see if a duplicate
+	adw	PSNewSz,R4
+	dew	R4	; now have pointer to end of NewOne
+	mvw	PSNewE,R3
+13$:	cpw	PSNewCt,PSNewSz
+	bge	11$	; if run out of bytes, its a dup!!
+	ldy	#0
+	lda	(R3),y	; is THIS byte the same?
+	cmp	(R4),y
+	bne	14$
+	dew	R3
+	dew	R4	; go for another byte look
+	inw	PSNewCt
+	bra	13$
+14$:	inw	R2	; not found, not duped, so next....
+	inw	R2
+	inx
+	cpw	R2,PSPtr	; have we reached the end?
+	bge	15$
+	jmp	PSChkLp	; if now, keep loopin
+15$:	lda	#0
+	rts
+
+ScnPics:	ldw	A0,#PStack	; initialiZe the stack pointer
+	ldb	PicNum,#0	; initialiZe the pic number
+10$:	ldy	#0
+	lda	(A0),y	; get picture pointer
+	sta	A1L
+	iny
+	lda	(A0),y
+	sta	A1H
+	mvw	A1,PSAdd
+	jsr	PStackLk	; see if it was a duplicate
+	cmp	PicNum
+	blt	98$	; if it was a duplicate, skip it
+	jsr	InsPic
+	bne	99$
+98$:	inw	A0	; increment the stack pointer
+	inw	A0
+	inc	PicNum	; increment the pic number
+	cpw	A0,PSPtr	; have we reached the end
+	blt	10$
+	ldx	#0	; all done!
+99$:	rts
+
+InsPic:	cbi	LineNum,#1
+	ble	10$	; if on first line, don't worry
+	ldy	#7
+	lda	(A1),y	; get the height
+	lsr	a
+	lsr	a
+	lsr	a	; calculate height in lines
+	clc
+	adc	LineNum	; add in current line
+	cmp	#65
+	blt	10$	; if still under line, ok
+	jsr	GWPage
+	beq	10$
+99$:	rts		; a disk error exit
+10$:	sta	LineNum	; its dumb, but do it anyways..
+	jsr	i_PutWString	; put the label
+	.word	Scn19
+	bne	99$
+	lda	PicNum
+	jsr	PutHexBn	; put the rest of the label
+	bne	99$
+	jsr	i_PutWString
+	.word	Gen04
+	bne	99$	; put the colon and CR
+	mvw	A1,A2
+	avw	#6,A2	; get pointer to pic data
+	ldy	#2
+	lda	(A1),y	; get pic data siZe
+	sta	A3L
+	iny
+	lda	(A1),y	; and high byte
+	sta	A3H
+	adw	A1,A3
+	jsr	PutWPic	; now put out the picture
+	cpx	#0
+	rts
+
+; *** Generic output strings
+
+Gen01:	.byte	9,".byte",9,0
+Gen02:	.byte	13,0	; the correct way to do a CR
+Gen03:	.byte	9,".word ",0
+Gen04:	.byte	":",13,0
+Gen05:	.byte	":",9,".byte",9,"27,",34,0
+Gen06:	.byte	34,",0",13,0
+Gen07:	.byte	":",0
+
+;***Dialog strings
+
+TTxtB:	.byte	"Screen design",27,0
+TTxtC:	.byte	"Menu",27,0
+TTxtD:	.byte	"Dialog box",27,0
+TTxtE:	.byte	"All",27,0
+
+; *** Status strings
+
+CTxt0:	.byte	$18,"Creating file...",27,0
+CTxt1:	.byte	$18,"Graphic tables...",27,0
+CTxt2:	.byte	$18,"Picture data...",27,0
+CTxt3:	.byte	$18,"Making menus...",27,0
+CTxt4:	.byte	$18,"Dialog boxes...",27,0
+
+.ramsect
+FName:	.block	20	; filename to export to
+ExSel:	.block	1	; selection on dialog box
+HexSave:	.block	1	; temporary storage for hex routine
+ThisCode:	.block	1	; save the working code
+BPtr:	.block	2	; pointer into Buffer
+Buffer:	.block	258	; general use buffer
+
+PicNum:	.block	1	; picture number
+PStack:	.block	130	; general picture buffer
+PSPtr:	.block	2	; pointer to next stack entry
+PSAdd:	.block	2	; something to add
+PSNewSz:	.block	2	; siZe of the new one added
+PSNewCt:	.block	2	; siZe counter for PSNewSz
+PSNewE:	.block	2	; pointer to end of new one
+</pre></body></html>

@@ -1,0 +1,362 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;******************************
+;*  S/geoBExportM
+;*  Menu mode generation
+;******************************
+
+.if 	Pass1
+.noeqin
+.noglbl
+.include	GEOSequates
+		LineNum = $8879
+.eqin
+.glbl
+.endif
+
+	.psect
+
+ExMenu:	lda	ExSel
+	cmp	#1
+	beq	11$	; see if this was selected
+	cmp	#3
+	beq	11$
+10$:	ldx	#0
+	rts
+11$:	ldb	DummyH,#20	; set up the dummy header
+	ldw	DummyH+4,#0
+	ldb	DummyH+6,#0	; set up dummy coordinates
+	lda	#0
+	sta	MnuNum	; initialiZe menu lable number
+	sta	MnuTNum	; initialiZe menu text lable number
+	sta	BPtr
+	jsr	MenuGather
+	beq	10$	; eq means nothing to do
+	ldw	A2,#CTxt3	; start the write by saying so
+	jsr	WkBox
+	jsr	i_PutWString	; put the first menu code
+	.word	Mnu17
+	bne	10$	; always leave on error
+	jsr	i_PutWString	; put the action stub
+	.word	Mnu16
+	jsr	i_PutWString
+	.word	Gen02	; send a cr
+	bne	10$	; always leave on error
+	ldw	MnuBPtr,#Buffer-2	; point BEFORE first menu in buffer
+	ldw	MnuDPtr,#DummyH; the top level is the first to go
+	ldb	MnuCode,#20	; get a top level code
+	bra	15$	; start the inner loop for top level
+12$:	mvw	MnuBPtr,A0
+	ldy	#0
+	lda	(A0),y
+	sta	MnuDPtr	; get Data pointer to this menu
+	iny
+	lda	(A0),y
+	sta	MnuDPtr+1
+	cpb	MnuNum,BPtr	; have we already seen the last?
+	blt	14$
+13$:	jmp	GWPage	; last menu done, ALL DONE
+14$:	mvw	MnuDPtr,A0	; restore menu buffer pointer
+	ldy	#0
+	lda	(A0),y	; get the menu code
+	sta	MnuCode	; put this menus code in place
+15$:	jsr	MenuEval	; get # items, and page set
+	bne	13$	; errors exit, of course
+	jsr	MenuDo	; and now DO this menu
+	bne	13$
+	inw	MnuBPtr	; increment Buffer pointer
+	inw	MnuBPtr
+	inc	MnuNum	; increment current menu number
+	bra	12$	; and go back up for more
+
+MenuGather:
+	ldw	A0,#DataStart	; bufferiZe all top level menus
+	ldx	BPtr	; if a menu, so get index into Buffer		
+10$:	cpw	A0,EndOData
+	bge	99$	; are we at the end yet?
+	ldy	#0
+	lda	(A0),y	; grab this one's code
+	cmp	#21
+	blt	11$	; if >=21 and <=49 then ok
+	cmp	#49
+	bgt	11$
+	iny
+	lda	(A0),y	; see if its a menu itself
+	cmp	#$00	; MENU_ACTION
+	beq	11$	; if merely an action, don't bother
+	lda	A0L	; if ok, then put in buffer
+	sta	Buffer,x
+	inx
+	lda	A0H	; put pointer on the buffer
+	sta	Buffer,x
+	inx
+11$:	jsr	NxtItem	; get to the next one
+	bra	10$	; and look at the next
+99$:	stx	BPtr	; store the buffer pointer
+	cpx	#0	; are there any?
+	rts	
+
+MenuEval:	ldb	MnuItems,#0	; clear items
+	ldb	MnuLines,#6	; and # lines
+	mvw	MnuDPtr,A0	; send in A9 as pointer to MENU item
+	cpw	A0,EndOData
+	blt	10$	; if not at the end, get started
+	ldx	#$ff
+	rts
+10$:	mvb	MnuCode,ThisCode	; restore this menu level
+	inc	ThisCode	; and increment it
+11$:	jsr	NxtMnu	; go to first menu action
+	cpw	A0,EndOData
+	beq	14$
+	ldy	#0
+	lda	(A0),y
+	cmp	ThisCode	; see if this is an item
+	bgt	11$	; if a child's child, just skip
+	bne	13$	; if not a child, go to exit
+	mvw	A0,MnuLast	; set it as possible last child
+	inc	MnuItems	; increment # items
+	avb	#4,MnuLines
+	bra	11$	; and go back for more	
+13$:	cbi	ThisCode,#21
+	ble	11$	; top level is a special case
+14$:	ldb	Temp,#65
+	sbb	LineNum,Temp	; subtract current line from max lines
+	cpb	MnuLines,Temp
+	blt	15$
+	jmp	GWPage
+15$:	ldx	#0
+	rts
+
+MenuDo:	ldb	Temp,#DEFMTOP
+	ldw	Temp+1,#DEFMLFT
+	avw	#$14,Temp+1	; an adjustment I dont understand
+	mvw	MnuDPtr,A0	; prepare our pointers
+	mvw	MnuLast,A1	; set last child pointer
+	jsr	i_PutWString
+	.word	Mnu11	; start menu label
+	beq	11$	; no need to leave w/o error	
+10$:	rts
+11$:	lda	MnuNum
+	jsr	PutHexBn	; put the menu number
+	jsr	i_PutWString	; finish this line
+	.word	Gen07
+	bne	10$	; always leave on error
+	jsr	i_PutWString
+	.word	Gen01	; start top/bottom line
+	bne	10$	; always leave on error
+	jsr	NxtMnu	; get to the first child
+	cpw	A0,EndOData
+	beq	10$
+	ldy	#6	; get top first
+	lda	(A0),y
+	sec
+	sbc	Temp	; put the top
+	jsr	PutHexBc	; put it with a comma
+	bne	10$	; always leave on error
+	ldy	#9
+	lda	(A1),y
+	sec
+	sbc	Temp	; put the bottom
+	jsr	PutHexB
+	bne	10$	; always leave on error
+	jsr	i_PutWString
+	.word	Mnu12	; finish this line
+	bne	10$	; always leave on error
+	jsr	i_PutWString
+	.word	Gen03	; start left/right
+	bne	10$	; always leave on error
+	ldy	#4	; get the left bytes
+	lda	(A0),y
+	sta	A3L
+	iny
+	lda	(A0),y
+	sta	A3H
+	sbw	Temp+1,A3	; and adjust it please
+	jsr	PutHexWc	; and write it with comma
+	beq	13$	; no need to leave w/o error
+12$:	rts
+13$:	jmp	MenuCont
+
+MenuCont:	ldy	#7	; get the right bytes
+	lda	(A1),y
+	sta	A3L
+	iny
+	lda	(A1),y
+	sta	A3H
+	sbw	Temp+1,A3	; and adjust it please
+	jsr	PutHexW	; and write it with comma
+	bne	99$	; always leave on error
+	jsr	i_PutWString
+	.word	Mnu13	; finish this line
+	bne	99$	; always leave on error
+	cbi	MnuCode,#20
+	bne	16$
+	jsr	i_PutWString
+	.word	Mnu01	; horiZontal line start
+	bra	17$
+16$:	jsr	i_PutWString
+	.word	Mnu03	; vertical line start
+	beq	17$
+99$:	rts
+17$:	lda	MnuItems
+	jsr	PutHexB
+	bne	99$	; always leave on error
+	cbi	MnuCode,#21
+	bne	18$
+	jsr	i_PutWString
+	.word	Mnu02	; horiZontal line end
+	bne	99$	; always leave on error
+	beq	19$
+18$:	jsr	i_PutWString
+	.word	Mnu04	; vertical line end
+	bne	99$	; always leave on error
+19$:	jmp	MenuDo2	; now go do each item...
+
+MenuDo2:	mvb	MnuTNum,ThisText	; get the text number
+	mvw	MnuDPtr,A0	; and restore the menu pointer
+	mvb	MnuCode,ThisCode	; get a temporary menu code
+	inc	ThisCode	; and increment it to get child code
+MenuLp2:	jsr	NxtMnu	; get the next item
+	cpw	A0,EndOData	; have we reached the end
+	bge	11$	; if yes, then go do text
+	ldy	#0
+	lda	(A0),y	; get this one's code
+	cmp	ThisCode	; is it a child?
+	beq	12$	; if yes, then go ahead
+	bgt	MenuLp2	; if greater than my child exit
+			; if less than my child, then stop
+11$:	jmp	MenuDo3	; go and do the text strings
+12$:	jsr	i_PutWString
+	.word	Mnu06	; start text label
+	beq	14$
+13$:	rts
+14$:	lda	ThisText
+	jsr	PutHexBn	; send out the number
+	inc	ThisText	; increment the text number
+	jsr	i_PutWString
+	.word	Mnu07	; end the text label line
+	bne	13$
+	ldy	#1
+	lda	(A0),y	; get this item's code
+	cmp	#$00	; is it a MENU_ACTION?
+	beq	15$
+	jsr	i_PutWString
+	.word	Mnu05	; no, so start menu line
+	bne	13$
+	jsr	i_PutWString
+	.word	Mnu09	; and another menu part
+	bne	13$
+	jsr	MnuGNum	; get this menus future number
+	jsr	PutHexBn
+	bne	13$
+	jsr	i_PutWString
+	.word	Mnu10	; end the menu line
+	bra	16$
+15$:	jsr	i_PutWString
+	.word	Mnu14	; start an action line
+	bne	13$
+	jsr	i_PutWString
+	.word	Mnu15	; and end an action line
+	bne	13$
+16$:	jmp	MenuLp2	; go back for more
+
+
+
+MnuGNum:	ldy	#1	; set the item pointer
+	ldx	#0	; clear the index
+10$:	lda	Buffer,x	; get the low byte
+	cmp	A0L
+	bne	11$	; if no match skip
+	inx
+	lda	Buffer,x	; check the high byte
+	cmp	A0H
+	bne	12$	; if no match, skip
+	tya		; get our .y back into .a
+	rts		; and return it to MenuDo2
+11$:	inx
+12$:	inx		; point to next menu
+	iny		; increment the index
+	bne	10$	; get back up there
+	tya
+	rts		; a catch-all... never-ever used!!!
+
+MenuDo3:	mvw	MnuDPtr,A0	; and restore the menu pointer
+	mvb	MnuCode,ThisCode	; move the menu into the A7H
+	inc	ThisCode	; and increment it to get child code
+MenuLp3:	jsr	NxtMnu	; get the next item
+	cpw	A0,EndOData	; have we reached the end
+	bge	11$	; if yes, then go do text
+	ldy	#0
+	lda	(A0),y	; get this one's code
+	cmp	ThisCode	; is it a child?
+	beq	13$	; if yes, then go ahead
+	bgt	MenuLp3	; if a child of a child, skip
+			; otherwise, its less than a child.. 
+11$:	jsr	i_PutWString	; so exit
+	.word	Gen02	; send a final carriage return
+	ldx	#0
+12$:	rts		; all stinkin done!!
+13$:	jsr	i_PutWString
+	.word	Mnu08	; start text label
+	lda	MnuTNum
+	jsr	PutHexBn	; put the current text number
+	bne	12$
+	inc	MnuTNum	; and permanently increment it
+	jsr	i_PutWString
+	.word	Gen05	; start text quotes
+	bne	12$
+	mvw	A0,A2	; copy the item pointer
+	avw	#10,A2	; get the text pointer
+	jsr	PutWString	; and stringify it
+	jsr	i_PutWString
+	.word	Gen06	; start text quotes
+	bne	12$
+	jmp	MenuLp3
+
+NxtMnu:	cpw	A0,EndOData	; see if at the end
+	blt	11$
+10$:	rts		; an at the end exit...
+11$:	jsr	NxtItem	; get the next item
+	cpw	A0,EndOData	; and check the end again
+	bge	10$
+	ldy	#0	; get the next ones type
+	lda	(A0),y
+	cmp	#20	; is it less than 20?
+	blt	11$	; if yes, then get another
+	cmp	#49	; is it greater than 49
+	bgt	11$	; if yes, then get another
+	rts		; otherwise leave
+
+Mnu01:	.byte	9,".byte",9,"$00|",0    ; horiZontal menu declaration
+Mnu02:	.byte	9,"; HORIZONTAL menu | # items",13,0
+Mnu03:	.byte	9,".byte",9,"$80|",0    ; vertical menu declaratoin
+Mnu04:	.byte	9,"; VERTICAL menu | # items",13,0
+Mnu05:	.byte	9,".byte",9,"$80",9,"; SUB_MENU",13,0
+Mnu06:	.byte	9,".word MnuTxt",0
+Mnu07:	.byte	9,"; menu text pointer",13,0
+Mnu08:	.byte	"MnuTxt",0
+Mnu09:	.byte	9,".word Menu",0
+Mnu10:	.byte	9,"; sub menu pointer",13,0
+Mnu11:	.byte	"Menu",0
+Mnu12:	.byte	9,"; menu top, bottom",13,0
+Mnu13:	.byte	9,"; menu left, right",13,0
+Mnu14:	.byte	9,".byte",9,"$00",9,"; MENU_ACTION",13,0
+Mnu15:	.byte	9,".word MenuAct",9,"; **** action routine here!",13,0
+Mnu16:	.byte	"MenuAct:",9,"jmp",9,"$c1bd",9,"; GotoFirstMenu",13,0
+Mnu17:	.byte	"DrawMenu:",9,"lda",9,"#[(Menu00)",9,"; point to first menu",13
+	.byte	9,"sta",9,"$02",13,9,"lda",9,"#](Menu00)",13
+	.byte	9,"sta",9,"$03",13,9,"lda",9,"#$00",13
+	.byte	9,"jmp",9,"$c151",9,"; DoMenu",13,0
+
+
+.ramsect
+;** Menu Mode
+MnuNum:	.block	1	; current menu number
+MnuTNum:	.block	1	; current menu text index number
+MnuLines:	.block	1	; line numbers taken by a menu
+MnuItems:	.block	1	; number of items in current menu
+MnuLast:	.block	2	; pointer to last child item
+MnuCode:	.block	1	; this menus level code
+MnuBPtr:	.block	2	; menu buffer pointer
+MnuDPtr:	.block	2	; menu data pointer
+ThisText:	.block	1	; this text line variable
+</pre></body></html>

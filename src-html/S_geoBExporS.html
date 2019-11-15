@@ -1,0 +1,440 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;******************************
+;*  S/geoBExportS
+;*  Screen mode generation
+;******************************
+
+.if 	Pass1
+.noeqin
+.noglbl
+.include	GEOSequates
+		LineNum = $8879
+.eqin
+.glbl
+.endif
+
+	.psect
+
+
+ExScrn:	lda	ExSel
+	beq	11$	; see if this was selected
+	cmp	#3
+	beq	11$
+	ldx	#0	; a non-disk exit, so say OK
+10$:	rts
+11$:	ldb	ScnRTSF,#0
+	ldw	A1,#DataStart
+12$:	cpw	A1,EndOData	; see if there ARE any screen things..
+	bge	16$
+	ldy	#0
+	lda	(A1),y
+	cmp	#1
+	blt	13$	; see if its a screen code
+	cmp	#20
+	blt	14$
+13$:	jsr	NxtScrn
+	bra	12$
+14$:	ldw	A2,#CTxt1	; start the write
+	jsr	WkBox
+	ldb	LastPatt,#$ff	; load an invalid pattern
+	jsr	ScnGStr	; first put bitmaps and graphicsstrings
+	bne	10$
+	jsr	ScnCBox	; then put clickbox table
+	bne	10$
+	lda	ScnRTSF
+	bne	15$
+	jsr	i_PutWString	; end with something good
+	.word	Scn24
+15$:	jmp	GWPage	; close this last screen page
+16$:	ldx	#0	; non-disk exit, no pics
+	rts
+
+
+NxtScrn:	cpw	A1,EndOData
+	bge	10$
+	ldy	#2	; go onto the next thing
+	lda	(A1),y
+	sta	Temp	; so get the increment bytes
+	iny
+	lda	(A1),y
+	sta	Temp+1	; and the high increment byte
+	adw	Temp,A1	; add it in!
+10$:	rts
+
+ScnGStr:	ldw	A1,#DataStart	; prepare to cycle through entries
+	ldb	DataMode,#0	; not in any mode
+	jsr	i_PutWString	; start with something good
+	.word	Scn17
+11$:	cpw	A1,EndOData
+	bne	12$
+	ldx	#0	; just in case of a non-disk exit
+	lda	DataMode
+	beq	99$	; any tables to close, close now...
+	jsr	ScnGCMod
+99$:	rts		; this is the way we exit...
+12$:	ldy	#1
+	lda	(A1),y	; snag the pattern first
+	sta	IPatt
+	dey		; get the next data code 
+	lda	(A1),y
+	sta	ThisCode	; store the code for later
+	cmp	#20	; 0-20 are screen codes
+	ble	14$
+13$:	jsr	NxtScrn	; skip ahead by A1
+	bra	11$	; and go up to check the next one
+14$:	tay		; put the code in .y
+	lda	ModeTab,y	; see if we are changing modes
+	cmp	#3	; not doing clickboxes yet
+	beq	13$	; so go to next thing...
+	sta	NewMode	; save new mode temporarily
+	lda	DataMode
+	beq	15$	; if in a non-mode, skip to open
+	cmp	NewMode	; but if the same, just continue
+	beq	16$	; just a continue, so go down
+	jsr	ScnGCMod	; close the current mode
+	bne	18$
+15$:	mvb	NewMode,DataMode ; we are now in this mode
+	jsr	ScnGOMod
+	bne	18$
+16$:	cbi	DataMode,#1	; one is a graphicsstring line
+	bne	17$
+	jsr	ScnGPut
+	beq	13$	; done, so go to next thing
+	rts
+17$:	cbi	DataMode,#2
+	bne	13$	; only doing gstrings and bitmaps..
+	jsr	ScnGBmp
+	beq	13$
+18$:	rts
+ModeTab:	.byte	255,1,255,1,1,1,2,3,255,255,255	 ; 0-10
+	.byte	255,255,255,255,255,255,255,255,255,255; 11-20
+
+ScnCBox:	jsr	CountClks	; this will count boxes, and load A1
+	lda	ClkCount
+	beq	10$	; none? so exit
+	cbi	LineNum,#47	; want at least 20 lines for clickboxes
+	blt	11$
+	jsr	GWPage
+	beq	11$	; errors are bad though
+10$:	rts
+11$:	jsr	i_PutWString	; display big old clickbox intro
+	.word	Scn21
+	bne	10$
+	ldb	ScnRTSF,#1
+	jsr	i_PutWString
+	.word	Gen01
+	bne	10$	; put .byte for # boxes, and Zeroes
+	lda	ClkCount
+	jsr	PutHexBc
+	bne	10$	; thats the # click boxes
+	lda	#0
+	jsr	PutHexBc
+	bne	99$	; and low byte of mouse col
+	lda	#0
+	jsr	PutHexBc
+	bne	99$	; and high byte of mouse col
+	lda	#0
+	jsr	PutHexB
+	bne	99$	; and the row byte
+	jsr	i_PutWString
+	.word	Scn22
+	beq	12$	; and the comment ends it
+99$:	rts
+12$:	lda	#7
+	jsr	LookinFor	; look for code 7, clickboxes
+15$:	beq	99$
+	jsr	ScnGBmp	; does most of the work for us!
+	jsr	i_PutWString
+	.word	Scn23
+	bne	99$	; put the damn .word for routine
+	jsr	KeepLookin
+	bra	15$
+
+ScnGOMod:	cbi	DataMode,#1	; check for gfxstring open
+	bne	20$
+	cbi	LineNum,#57	; want at least 10 lines for gstring
+	blt	10$
+	jsr	GWPage
+	bne	11$
+10$:	jsr	i_PutWString	; put the graphics string
+	.word	Scn01
+11$:	rts
+20$:	cmp	#2	; is it bitmap mode?
+	beq	21$
+	ldx	#0	; clickbox or other, a non-disk exit
+	rts
+21$:	jsr	i_PutWString	; put the bitmap thing
+	.word	Scn02
+	rts
+
+ScnGCMod:	lda	DataMode
+	beq	11$	; exit happily, though null
+	cmp	#1	; only need to close mode 1
+	bne	10$
+	jsr	i_PutWString		; dats all!
+	.word	Scn03
+	rts
+10$:	ldx	#0	; for non-disk exits
+11$:	rts
+
+ScnGPut:	cbi	ThisCode,#5
+	blt	50$	; strings are their own beast
+	jmp	ScnGTPut
+50$:	cmp	#3
+	bne	10$	; lineboxes can be tricky
+	cbi	IPatt,#$ff	; so check its pattern
+	beq	10$	; if they aren't solid line
+	jmp	ScnGFPut	; put the FRectangle
+10$:	jsr	i_PutWString	; first put MOVEPENTO
+	.word	Scn04
+	beq	12$
+11$:	rts
+12$:	ldb	ScnXYtmp,#4
+	jsr	ScnXYHex	; put MOVEPENTO digits
+	bne	11$
+	jsr	i_PutWString	; put MOVEPENTO comment
+	.word	Scn05
+	bne	11$
+	lda	ThisCode	; get the code AGAIN
+	cmp	#4
+	bne	13$
+	cpb	IPatt,LastPatt	; check if a pattern is necessary
+	beq	13$	; if its not necc, skip
+	sta	LastPatt		; BUT DAMMIT, IT IS
+	jsr	i_PutWString	; put NEWPATTERN
+	.word	Scn14
+	bne	11$
+	lda	LastPatt
+	jsr	PutHexB	; put the pattern code
+	bne	11$
+	jsr	i_PutWString	; and put the NEWPATTERN comment
+	.word	Scn15
+	bne	11$
+13$:	ldw	A3,#ScnGTab	; now do the real deal
+	lda	ThisCode	; get the code back
+	jsr	ScnGHlp	; and show its main data
+	bne	11$
+	ldb	ScnXYtmp,#7
+	jsr	ScnXYHex	; put the digits
+	bne	11$
+	ldw	A3,#ScnGCTab	; now do the comment
+	lda	ThisCode	; get the code back
+	jsr	ScnGHlp	; and show its comment!
+	bne	11$
+	rts		; whew!
+ScnGTab:	.word	0,Scn06,0,Scn08,Scn10,Scn12
+ScnGCTab:	.word	0,Scn07,0,Scn09,Scn11,Scn13	
+	
+
+ScnGFPut:	jsr	ScnGCMod	; end this mode (should be gfxstring)
+	beq	11$
+10$:	rts
+11$:	jsr	i_PutWString	; put the i_FrameRectangle
+	.word	Scn16
+	bne	10$
+	jsr	i_PutWString	; put .byte
+	.word	Gen01
+	bne	10$
+	ldy	#6
+	lda	(A1),y	; get top margin
+	jsr	PutHexBc	; put it, and the comma
+	beq	13$
+12$:	rts
+13$:	ldy	#9
+	lda	(A1),y
+	jsr	PutHexBc	; and the bottom margin
+	bne	12$	; put it, and the comma
+	ldy	#4
+	lda	(A1),y	; and the left low byte
+	jsr	PutHexBc	; put it, and the comma
+	bne	12$
+	ldy	#5
+	lda	(A1),y	; and the left high byte
+	jsr	PutHexBc	; put it, and the comma
+	bne	12$
+	ldy	#7
+	lda	(A1),y
+	jsr	PutHexBc	; and the right low byte, with comma
+	bne	12$
+	ldy	#8
+	lda	(A1),y	; and the right high byte
+	jsr	PutHexBc
+	bne	12$
+	lda	IPatt
+	jsr	PutHexB
+	bne	12$
+	ldb	DataMode,#0	; go to a non-mode
+	jsr	i_PutWString	; and end the line
+	.word	Gen02
+	rts
+
+ScnGTPut:	ldw	A3,#ScnGTab	; now do the text code
+	lda	ThisCode	; get the code back
+	jsr	ScnGHlp	; and start it off right
+	beq	11$
+10$:	rts
+11$:	ldy	#4
+	lda	(A1),y	; get left low byte
+	jsr	PutHexBc	; and the comma
+	bne	10$
+	ldy	#5
+	lda	(A1),y	; get left high byte
+	jsr	PutHexBc	; and the comma
+	bne	10$
+	ldy	#9
+	lda	(A1),y	; get left low byte
+	sec
+	sbc	#2	; adjust for the underline
+	jsr	PutHexBc	; and show it, and its comma
+	beq	13$
+12$:	rts
+13$:	jsr	PutTPatt
+	bne	12$
+	jsr	i_PutWByte	; put the open quote
+	.byte	34
+	bne	12$
+	mvw	A1,A2
+	avw	#10,A2
+	jsr	PutWString	; display the happy string
+	bne	12$
+	ldb	DataMode,#0	; go to a non-mode
+	ldw	A3,#ScnGCTab	; now do the comment
+	lda	ThisCode
+	jmp	ScnGHlp	; and show its comment!
+
+PutTPatt:	ldb	TDex,#2	; start with bit three on pattern match
+	ldb	TDex+1,#0	; counter for the table
+14$:	lda	TDex	; grab the pattern mask
+	and	IPatt	; check to see if this bit is set
+	beq	15$
+	ldy	TDex+1
+	lda	PattTab,y	; grab the pattern char off table
+	jsr	PutHexBc	; display it, and its comma
+	bne	99$
+15$:	inc	TDex+1	; increment table counter
+	asl	TDex	; and move pattern mask left
+	bcc	14$	; keep going until all checked
+	ldx	#0
+99$:	rts
+PattTab:	.byte	27,27,26,25,18,24,14,27,27,27
+
+ScnGBmp:	ldb	DataMode,#0	; go back to a non-mode
+	jsr	i_PutWString	; put the .word
+	.word	Scn18
+	beq	10$
+	rts
+10$:	mvw	A1,PSAdd	; put this picture on stack, get num
+	jsr	PStackAdd
+	jsr	PutHexBn	; output num
+	bne	99$
+	jsr	i_PutWString	; the right way to end a line
+	.word	Gen02
+	bne	99$
+	jsr	i_PutWString	; prepare to put column
+	.word	Gen01
+	bne	99$
+	ldy	#4
+	lda	(A1),y
+	jsr	PutHexBc	; put the digit, and the comma
+	bne	99$
+	ldy	#5
+	lda	(A1),y
+	jsr	PutHexBc	; put the row byte, and the comma
+	bne	99$
+	ldy	#6
+	lda	(A1),y
+	jsr	PutHexBc	; put the width byte, and the comma
+	bne	99$
+	ldy	#7
+	lda	(A1),y
+	jsr	PutHexB	; put the height byte
+	bne	99$
+	jsr	i_PutWString	; put the comment
+	.word	Scn20
+99$:	rts
+
+ScnXYHex:	ldy	ScnXYtmp	; start is her
+	lda	(A1),y
+	jsr	PutHexBc	; put the COL lb, then a comma
+	beq	11$
+10$:	rts
+11$:	inc	ScnXYtmp
+	ldy	ScnXYtmp
+	lda	(A1),y	; then put COL hb, then a comma
+	jsr	PutHexBc
+	bne	10$
+	inc	ScnXYtmp
+	ldy	ScnXYtmp
+	lda	(A1),y	; then put ROW byte, but no comma
+	jmp	PutHexB
+	rts
+
+ScnGHlp:	asl	a	; get correct string to display
+	tay		; table in A3, index in .a
+	lda	(A3),y	; read pointer from table
+	sta	A2L	; and save it
+	iny
+	lda	(A3),y	; get the rest of the pointer
+	sta	A2H
+	jmp	PutWString	; now make use of it
+
+
+CountClks:	ldw	A1,#DataStart
+	ldb	ClkCount,#0
+	lda	#7
+	jsr	LookinFor
+10$:	beq	15$
+	inc	ClkCount
+	jsr	KeepLookin
+	bra	10$
+15$:	ldw	A1,#DataStart
+	rts
+
+;**** Screen Mode output strings
+
+Scn01:	.byte	9,"jsr",9,"$c1a8",9,"; i_GraphicsString",13,0
+Scn02:	.byte	9,"jsr",9,"$c1ab",9,"; i_BitmapUp",13,0
+Scn03:	.byte	9,".byte",9,"$00",9,"; end of table",13,0
+Scn04:	.byte	9,".byte",9,"$01,",0
+Scn05:	.byte	9,"; MOVEPENTO Xl,Xh,Y",13,0
+Scn06:	.byte	9,".byte",9,"$02,",0
+Scn07:	.byte	9,"; LINETO Xl,Xh,Y",13,0
+Scn08:	.byte	9,".byte",9,"$07,",0
+Scn09:	.byte	9,"; FRAME_RECTO  Xl,Xh,Y",13,0
+Scn10:	.byte	9,".byte",9,"$03,",0
+Scn11:	.byte	9,"; RETANGLETO  Xl,Xh,Y",13,0
+Scn12:	.byte	9,".byte",9,"$06,",0
+Scn13:	.byte	34,",27,0",13,0
+Scn14:	.byte	9,".byte",9,"$05,",0
+Scn15:	.byte	9,"; NEWPATTERN",13,0
+Scn16:	.byte	9,"jsr",9,"$c1a2",9,"; i_FrameRectangle",13,0
+Scn17:	.byte	"DrwScn:",0
+Scn18:	.byte	9,".word Bitmap",0
+Scn19:	.byte	"Bitmap",0
+Scn20:	.byte	9,"; col, row, width, height",13,0
+Scn21:	.byte	9,"lda",9,"#[(ClkBoxes)",13
+	.byte	9,"sta",9,"$02",9,"; R0L",13
+	.byte	9,"lda",9,"#](ClkBoxes)",13
+	.byte	9,"sta",9,"$03",9,"; R0H",13
+	.byte	9,"jsr",9,"$c15a",9,"; DoIcons - start click boxes",13
+	.byte	9,"rts",9,9,"; exit from screen routine",13
+	.byte	"ClkBoxes:",0
+Scn22:	.byte	9,"; # clkboxes, mouse Xl,Xh,Y",13,0
+Scn23:	.byte	9,".word _",9,"; routine to execute on click",13,0
+Scn24:	.byte	9,"rts",9,9,"; exit from screen routine",13,0
+
+.ramsect
+
+;** Screen Mode
+TDex:	.block	2	; index for text styles, and count
+ClkCount:	.block	1	; the total number of clickboxes
+Look4:	.block	1	; byte for looking for to look for
+IPatt:	.block	1	; pattern for current thing
+ScnXYtmp:	.block	1	; temporary storage for hex XY index
+DPtr:	.block	2	; pointer to current data item
+DataMode:	.block	1	; current work item (gstring, open, ..)
+NewMode:	.block	1	; for saving the work going into
+LastPatt:	.block	1	; the last pattern used
+ScnRTSF:	.block	1	; flag as to whether screen was rtsd
+
+</pre></body></html>

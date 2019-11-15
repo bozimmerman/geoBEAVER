@@ -1,0 +1,253 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;******************************
+;*  S/geoBOpen
+;*
+;******************************
+
+.if 	Pass1
+.noeqin
+.noglbl
+.include	GEOSequates
+.eqin
+.glbl
+.endif
+
+	.psect
+	jmp	OpenUp	; VPRGbase + 0
+	jmp	OKBox	; VPRGbase + 3
+	jmp	CNCLBox	; VPRGbase + 6
+	jmp	ClrScrn	; VPRGbase + 9
+	jmp	CloseFile	; VPRGbase + 12
+	jmp	LoadFile	; VPRGbase + 15
+	jmp	RcvrEndD	; VPRGbase + 18
+	jmp	RenWkFile	; VPRGbase + 21
+	jmp	DlgBox	; VPRGbase + 24
+
+OpenUp:	ldw	A2,#IntroGfx
+	ldw	A3,#ClrIGfx
+	ldw	A4,#DataPNam
+	ldw	A5,#FileName
+	jsr	FileBox	; do the open/create/quit box
+	cpx	#0
+	bne	OpenUp	; restart if disk error!
+10$:	lda	sysDBData
+	beq	11$
+	jsr	LoadFile	; file is being loaded!!!
+	cpx	#0
+	bne	OpenUp	; restart if disk error!
+	jsr	RcvrEndD
+	rts		; done, exit
+11$:	jsr	CreateFi	; create her
+	rts
+
+RcvrEndD:	ldw	A0,#$8100	; recover EndOData from header
+	ldy	#$49	; look into header
+	lda	(A0),y	; get eodata lsb
+	sta	EndOData
+	iny
+	lda	(A0),y	; get eodata hsb
+	sta	EndOData+1
+	dew	EndOData	; readjust for saved file
+	rts
+
+IntroGfx:	ldw	R0,#IntroBox	;Put little text box in
+	jmp	GraphicsString
+ClrIGfx:	ldw	R0,#ClrIBox	;Put little text box in
+	jmp	GraphicsString
+
+
+IntroBox:
+	.byte	$05	;Set pattern
+	.byte	$00	;Clear pattern
+	.byte	$01	;Set position
+	.word	100	;  Xpos
+	.byte	145	;  Ypos
+	.byte	$07	;Make outline
+	.word	225	;  Xpos
+	.byte	185	;  Ypos
+	.byte	$01	;Set fill position
+	.word	101	;   Xpos
+	.byte	146	;   Ypos
+	.byte	$03	;Fill in box
+	.word	224	;   Xpos
+	.byte	184	;   Ypos
+	.byte	$06	;First Text line
+	.word	115	;   Xpos
+	.byte	167	;   Ypos
+	.byte	$18," - geoBeaver 1.0 - ",27,0
+	.byte	$00	;End intro box
+
+ClrIBox:	.byte	$05	;Set pattern
+	.byte	$02	;Clear pattern
+	.byte	$01	;Set position
+	.word	100	;  Xpos
+	.byte	145	;  Ypos
+	.byte	$03	;Fill in box
+	.word	225	;   Xpos
+	.byte	185	;   Ypos
+	.byte	$00	;End intro box
+
+CreateFi:	mvb	curDrive,FileDrv	;save drive of opened file
+	ldb	SaveFlag,#$01	;create the file
+	ldw	EndOData,#DataStart
+	ldb	DataStart,#$00	;start off with nothing, please
+	;inw	EndOData	; don't do this.. it screws it up
+	jmp	CloseFile
+
+
+CloseFile:	lda	SaveFlag
+	beq	15$
+	mvw	EndOData,DataEnd
+	inw	DataEnd
+	ldw	R0,#FileName
+	mvw	R0,DataHeader	;update filename in header
+	jsr	DeleteFile	;erase old file
+	ldw	R9,#DataHeader
+	ldb	R10L,#0
+	ldb	SaveFlag,#$00	;re-clear save flag
+	jsr	SaveFile	;save new file
+	cpx	#0
+	beq	15$
+	jsr	FError	; errors in save are bad
+	jmp	OpenUp
+15$:	rts
+
+
+
+LoadFile:	ldb	R0L,#$01	;set up Load Code
+	ldw	R6,#FileName
+	ldw	R7,#DataStart	; for compatibility
+	jsr	GetFile	;read old file
+	cpx	#0
+	bne	10$
+	mvw	DataEnd,EndOData
+	ldx	#0
+10$:	jmp	FError	;handle errors
+
+MoveHead:
+	ldw	A0,#DataHeader	;copy new header block
+	ldw	A1,#$8100
+	lda	#$ff
+	ldx	#A1
+	ldy	#A0
+	jmp	CopyFString
+
+RenWkFile:
+	ldw	R0,#FileName	; rename the work file
+	ldw	R15,#FTemp
+	ldy	#R15
+	ldx	#R0
+	jsr	CopyString	; get the old filename in place
+	ldw	R15,#FTemp
+	ldw	R0,#RenBox	; open rename box please
+	jsr	DoDlgBox
+	cbi	FTemp,#0	; was anything typed?
+	bne	11$
+10$:	rts		; ugh, so exit
+11$:	cbi	sysDBData,#2
+	beq	10$	; was cancel hit?
+	ldw	R0,#FTemp
+	ldw	R6,#FileName	; now try to rename on disk
+	jsr	RenameFile
+	cpx	#5
+	beq	12$	; file not found error ok
+	cpx	#0
+	beq	12$
+	jmp	FError	; handle other disk errors
+12$:	ldw	R0,#FTemp
+	ldw	R15,#FileName	; no errors, so we're done!
+	ldy	#R15
+	ldx	#R0
+	jsr	CopyString	; make this filename permanent
+	rts
+RenBox:	.byte	$80 | $01
+	.byte	11	; PutString
+	.byte	$10,$18
+	.word	RNTxt0
+	.byte	13	; GetString
+	.byte	$1c,$23
+	.byte	R15
+	.byte	16	; max characters to accept
+	.byte	$02,$0e,$43	; cancel icon
+	.byte	0
+RNTxt0:	.byte	$18,"Please enter new filename:",27,0
+
+DataHeader:
+	.word	FileName
+	.byte	$03,$15,$bf
+	.byte	$ff,$ff,$ff,$80,$00,$01,$b1,$39
+	.byte	$01,$aa,$92,$81,$ab,$93,$81,$aa
+	.byte	$92,$8f,$b2,$92,$bf,$80,$00,$3f
+	.byte	$80,$00,$1f,$80,$3f,$3f,$8f,$cc
+	.byte	$fd,$b6,$18,$39,$90,$41,$9d,$94
+	.byte	$d4,$91,$88,$37,$a1,$87,$3c,$61
+	.byte	$82,$83,$31,$81,$00,$01,$d6,$b5
+	.byte	$ad,$d6,$b5,$ad,$ff,$ff,$ff
+	.byte	$83
+	.byte	APPL_DATA
+	.byte	SEQUENTIAL
+	.word	DataStart
+DataEnd:	.word	DataStart
+	.word	0
+DataPNam:	.byte	"geoBeaver Data",0,0,0,0,0,$00
+	.byte	"Bo Zimmerman",0,0,0,0,0,0,0,0
+	.byte	"geoBeaver    1.0",0,0,0,$00
+Zeroes:	.block	160-117
+
+
+DlgBox:	lda	#[(DlgDat)
+	sta	$02	; set lsb for dialog data
+	lda	#](DlgDat)
+	sta	$03	; set msb for dialog data
+	jmp	$c256	; call DoDlgBox and leave!
+DlgDat:	.byte	$01	; size flag, and shadow pattern
+	.byte	$20,$b5,$40,$00,$1e,$01	; dialog box dimensions
+	.byte	$0b,$06,$0b	; static text
+	.word DlgT00
+	.byte	$0b,$06,$17	; static text
+	.word DlgT01
+	.byte	$0b,$06,$21	; static text
+	.word DlgT02
+	.byte	$0b,$07,$2a	; static text
+	.word DlgT03
+	.byte	$0b,$07,$35	; static text
+	.word DlgT04
+	.byte	$0b,$07,$47	; static text
+	.word DlgT05
+	.byte	$0b,$07,$52	; static text
+	.word DlgT06
+	.byte	$0b,$07,$5d	; static text
+	.word DlgT07
+	.byte	$0b,$08,$6d	; static text
+	.word DlgT08
+	.byte	$0b,$08,$77	; static text
+	.word DlgT09
+	.byte	$0b,$08,$81	; static text
+	.word DlgT0a
+	.byte	$01,$12,$7e	; OK button
+	.byte	$13	; all external dialog gfx
+	.word DlgGfx
+	.byte	$00	; end of table
+DlgT00:	.byte	$1a,$18,"geoBEAVER v1.0",27,0
+DlgT01:	.byte	"This program is SHAREWARE.  Distribute it",27,0
+DlgT02:	.byte	"as you like.  If you enjoy it, send your",27,0
+DlgT03:	.byte	"registration fee of $20.00 USD to the",27,0
+DlgT04:	.byte	"following address:",27,0
+DlgT05:	.byte	"Bo Zimmerman",27,0
+DlgT06:	.byte	"1907 Cameo Drive",27,0
+DlgT07:	.byte	"Round Rock, TX 78664",27,0
+DlgT08:	.byte	"Email: bo@zimmers.net",27,0
+DlgT09:	.byte	" ",27,0
+DlgT0a:	.byte	" ",27,0
+DlgGfx:	jsr	$c1ab	; i_BitmapUp
+	.word Bitmap00
+	.byte	$19,$5a,$03,$18	; col, row, width, height
+	rts
+
+Bitmap00:
+<img src="00664.png" />
+
+.ramsect
+FTemp:	.block	20	; for rename only
+
+</pre></body></html>

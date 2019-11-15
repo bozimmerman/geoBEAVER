@@ -1,0 +1,518 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;******************************
+;*  S/geoBeaver
+;*
+;******************************
+
+	.if 	Pass1
+	.include	GEOSequates
+DEFMTOP	= 30
+DEFMLFT	= 50		; MENU mode equates
+DEFMRIT	= 70		; which EXPORT needs also
+DEFMBOT	= 44
+	.endif
+
+	.psect
+
+ProgStart:
+	ldb	dispBufferOn,#(ST_WR_FORE|ST_WR_BACK)
+	jsr	UseSystemFont
+	ldw	EndOData,#DataStart	; reset for safetys sake
+	jsr	i_InitVPrg	; init the VLIR vectors
+	.word PermName
+	cpx	#0	; check for errors
+	bne	ByeBye	; if any, then exit
+	jsr	i_LdMod	; swap in the open/close mod
+	.byte	1
+	jsr	VPRGbase+24	; show shareware
+	jsr	i_LdMod	; next load rec 1
+	.byte	1
+	jsr	VPRGbase + 9	; do a ClrScrn
+	jsr	VPRGbase	; perform DoOpen stuff
+	ldb	MenuMode,#0	; clear the initial menu setup
+	jsr	InitStuff
+	jsr	GoMode	; set up for mode 1 at first
+	rts		; return to geos kernal
+
+ByeBye:	jmp	EnterDeskTop
+
+PermName:	.byte	"geoBeaver    1.0",0
+
+
+InitStuff:
+	jsr	i_InitDaAb
+	.word	0
+	.word	BeavRecv	; reset the titlebar in file window
+	.word	0
+	.word	AbtText
+	jsr	ClrBuf2End	; clear the buffer first time!
+	sei
+	ldb	Mode,#0	; set the mode to "screen"
+	jsr	MenuStar
+	ldb	DragFlag,#0	; clear the screen drag flag
+	ldw	Mod3IFlg,#0	; input blink flag for mode 3
+	ldw	otherPressVec,#MainClick
+	ldw	RecoverVector,#BeavRecv
+	ldw	appMain,#BigLoop
+	cli
+	jsr	UseSystemFont
+	ldb	SelMove,#0	; clear the selection flag
+	ldw	DummyH+2,#7
+	rts
+
+GoMode:	jsr	Crsr3Off; turn off blinkers
+	lda	Mode
+	beq	10$
+	cmp	#1
+	beq	11$
+	cmp	#2
+	beq	12$
+	bne	13$
+10$:	jsr	i_LdMod	; mode 1
+	.byte	2
+	jsr	VPRGbase + 0	; now set up mode Main1	
+	rts
+11$:	jsr	i_LdMod	; mode 2
+	.byte	4
+	jsr	VPRGbase + 0	; now set up mode Main2
+	rts
+12$:	jsr	i_LdMod
+	.byte	5
+	jsr	VPRGbase + 0
+13$:	rts
+
+Crsr3Off:	jsr	PromptOff
+	ldb	alphaFlag,#60
+	ldb	R3L,#1
+	jmp	DisablSprite
+Crsr3On:	lda	Mod3IFlg+1	; first check ye olde flag
+	bne	11$
+10$:	rts
+11$:	cbi	Mode,#2	; then check mode
+	bne	10$
+	mvw	Mod3IFlg,A0
+	ldy	#0
+	lda	(A0),y	; last check the pointer
+	cmp	#54
+	bne	10$
+	ldy	#6
+	lda	(A0),y
+	add	DlgDims+2	; then move in dimensions
+	sta	$84c0
+	ldy	#4
+	lda	(A0),y
+	add	DlgDims
+	sta	$84be
+	iny
+	lda	(A0),y
+	adc	DlgDims+1
+	sta	$84bf
+	jsr	PromptOn
+	ldb	alphaFlag,#252
+	ldb	R3L,#1
+	jmp	EnablSprite
+
+ClrBuf2End:	mvw	EndOData,R1
+	ldw	R0,#DataEndP
+	sbw	R1,R0
+	jmp	ClearRam
+
+MainClick:	cbi	Mode,#0
+	beq	50$
+	cmp	#1
+	beq	51$
+	cmp	#2
+	beq	52$
+	rts		; other modes not yet supported
+50$:	jsr	i_LdMod	; button press in mode 1
+	.byte	2
+	jmp	VPRGbase + 3	; mode1click
+51$:	jsr	i_LdMod
+	.byte	4
+	jmp	VPRGbase + 3	; mode2click
+52$:	jsr	i_LdMod
+	.byte	5
+	jmp	VPRGbase + 3	; mode3click
+
+BeavRecv:	mvw	R2,Temp	; save recover vectors
+	mvw	R3,Temp+2
+	mvw	R4,Temp+4
+	cbi	Mode,#0
+	beq	10$
+	cmp	#1
+	beq	11$
+	cmp	#2
+	beq	12$
+	jmp	RecoverRectangle	; other modes not yet supported
+10$:	jsr	i_LdMod
+	.byte	2
+	mvw	Temp,R2	; restore recover vectors
+	mvw	Temp+2,R3
+	mvw	Temp+4,R4
+	jmp	VPRGbase + 6	; mode1recv
+11$:	jsr	i_LdMod
+	.byte	4
+	mvw	Temp,R2	; restore recover vectors
+	mvw	Temp+2,R3
+	mvw	Temp+4,R4
+	jmp	VPRGbase + 6	; mode2recv
+12$:	jsr	i_LdMod
+	.byte	5
+	mvw	Temp,R2	; restore recover vectors
+	mvw	Temp+2,R3
+	mvw	Temp+4,R4
+	jmp	VPRGbase + 6	; mode3recv
+
+
+BigLoop:	cbi	DragFlag,#0	; are we dragging along?
+	bne	50$
+	lda	pressFlag	; keyboard pressed?
+	and	#$80	; mask out the 7th bit (keyboard)
+	beq	10$
+	cbi	Mode,#0	; check mode for keypress
+	beq	52$
+	cmp	#1
+	beq	54$	; check mode 2 for keypress
+	cmp	#2
+	beq	56$
+10$:	rts		; no draggin goin on
+50$:	cbi	Mode,#0
+	beq	51$
+	cmp	#1
+	beq	53$	; check mode 2 for click
+	cmp	#2
+	beq	55$
+	rts		; other modes not yet supported
+51$:	jsr	i_LdMod
+	.byte	2
+	jmp	VPRGbase + 9	; mode1drag
+52$:	jsr	i_LdMod	; key press in mode 1
+	.byte	2
+	jmp	VPRGbase + 12
+53$:	jsr	i_LdMod	; something in mode 2
+	.byte	4
+	jmp	VPRGbase + 9  ; mode2drag
+54$:	jsr	i_LdMod	; key press in mode 2
+	.byte	4
+	jmp	VPRGbase + 12
+55$:	jsr	i_LdMod
+	.byte	5
+	jmp	VPRGbase + 9	; mode3drag
+56$:	jsr	i_LdMod	; key press in mode 1
+	.byte	5
+	jmp	VPRGbase + 12
+
+
+
+DisMode:	jsr	Crsr3Off	; turn off blinkers
+	sei
+	ldw	otherPressVec,#0
+	ldw	RecoverVector,#RecoverRectangle
+	ldw	appMain,#0
+	cli
+	mvb	windowBottom,R2L	 ; make an arbitrary recover pt
+	sta	R2H
+	dec	R2L
+	mvb	rightMargin,R3L
+	sta	R4L
+	mvb	rightMargin+1,R3H
+	sta	R4H
+	dew	R3
+	jmp	BeavRecv
+99$:	rts
+
+
+ReMode:	sei
+	ldw	otherPressVec,#MainClick
+	ldw	RecoverVector,#BeavRecv
+	ldw	appMain,#BigLoop
+	cli
+	jmp	Crsr3On	; possibly restore  blinker
+UnMode:	sei		; clear up my vectors
+	ldw	otherPressVec,#0
+	ldw	RecoverVector,#0
+	ldw	appMain,#0
+	cli
+	jmp	Crsr3Off	; turn off blinkers
+	
+
+MyMenu:			; main menu data
+	.byte	0,14
+	.word	0,80
+	.byte	3|HORIZONTAL
+
+	.word	MNtxt0
+	.byte	VERTICAL
+	.word	DAABMenu
+	.word	MNtxt1
+	.byte	VERTICAL
+	.word	FImenu
+	.word	MNtxt2
+	.byte	VERTICAL
+	.word	MDmenu
+
+MNtxt0:	.byte	"geos",0
+MNtxt1:	.byte	"file",0
+MNtxt2:	.byte	"mode",0
+
+
+AbtText:	.byte	$1a,$18,"    geoBeaver",27,0
+	.byte	"          Version 1.0",27,0
+	.byte	$18,"    Copyright (C) 1998",27,0
+	.byte	$18,"    by Bo Zimmerman",27,0
+
+
+FImenu:	.byte	15,15+1+(6*14)	; file menu data
+	.word 29,29+40
+	.byte	VERTICAL | 6
+
+	.word	FItxt0
+	.byte	MENU_ACTION
+	.word	R_DoClose
+	.word	FItxt1
+	.byte	MENU_ACTION
+	.word	R_DoUpdate
+	.word	FItxt2
+	.byte	MENU_ACTION
+	.word	R_DoExport
+	.word	FItxt3
+	.byte	MENU_ACTION
+	.word	R_DoRecover
+	.word	FItxt4
+	.byte	MENU_ACTION
+	.word	R_DoRename
+	.word	FItxt5
+	.byte	MENU_ACTION
+	.word	R_DoExit
+
+FItxt0:	.byte	"close",0
+FItxt1:	.byte	"update",0
+FItxt2:	.byte	"export",0
+FItxt3:	.byte	"recover",0
+FItxt4:	.byte	"rename",0
+FItxt5:	.byte	"quit",0
+
+MDmenu:	.byte	15,15+1+(3*14)	; mode menu data
+	.word 49,49+40
+	.byte	VERTICAL | 3
+
+	.word	MDtxt0
+	.byte	MENU_ACTION
+	.word	R_DoM1
+
+	.word	MDtxt1
+	.byte	MENU_ACTION
+	.word	R_DoM2
+
+	.word	MDtxt2
+	.byte	MENU_ACTION
+	.word	R_DoM3
+
+MDtxt0:	.byte	"screen ",0
+MDtxt1:	.byte	"menu ",0
+MDtxt2:	.byte	"dialog ",0
+
+
+
+R_DoM1:	ldb	Temp+9,#0
+	jmp	ChgMode
+R_DoM2:	ldb	Temp+9,#1
+	jmp	ChgMode
+R_DoM3:	ldb	Temp+9,#2
+	jmp	ChgMode
+ChgMode:	jsr	GotoFirstMenu
+	lda	Mode	; are we already here?
+	cmp	Temp+9
+	bne	10$
+	rts		; nothing to do!
+10$:	lda	Temp+9	; now ready new mode
+	sta	Mode
+	jsr	MenuStar
+	jsr	ReDoMenu
+	jmp	GoMode	; and go do it visually
+
+MenuStar:	lda	#32
+	sta	MDtxt0+6
+	sta	MDtxt1+4
+	sta	MDtxt2+6
+	lda	#'*'
+	ldx	Mode
+	bne	10$
+	sta	MDtxt0+6
+	rts
+10$:	cpx	#1
+	bne	11$
+	sta	MDtxt1+4
+	rts
+11$:	cpx	#2
+	bne	12$
+	sta	MDtxt2+6
+	rts
+12$:	rts
+
+R_DoNothing:
+	jsr	GotoFirstMenu
+	rts
+R_DoExit:	jsr	GotoFirstMenu
+	lda	FileDrv	; reset the file drive
+	jsr	SetDevice
+	jsr	i_LdMod	; swap in the open/close mod
+	.byte	1
+	jsr	VPRGbase+12	; closefile (for saving)
+	lda	DAABdrv	; exit click -- exit the app
+	jsr	SetDevice
+	jsr	UnMode
+	jmp	EnterDeskTop
+
+R_DoClose:	jsr	GotoFirstMenu
+	lda	FileDrv	; reset the file drive
+	jsr	SetDevice
+	jsr	i_LdMod	; swap in the open/close mod
+	.byte	1
+	jsr	VPRGbase+12	; closefile (for saving)
+	jsr	VPRGbase+9	; clear screen
+	lda	DAABdrv	; exit click -- exit the app
+	jsr	SetDevice
+	jsr	UnMode
+	jmp	ProgStart	; re-do EVERYTHING!
+
+R_DoUpdate:	jsr	GotoFirstMenu
+	lda	FileDrv	; reset the file drive
+	jsr	SetDevice
+	jsr	i_LdMod	; swap in the open/close mod
+	.byte	1
+	jsr	VPRGbase+12	; closefile (for saving)
+	ldw	A2,#UDTxt0
+	jsr	OKBox
+	rts
+UDTxt0:	.byte	$18,"Update complete.",27,0
+
+
+
+R_DoRecover:
+	jsr	GotoFirstMenu
+	ldw	A2,RCTxt0
+	jsr	YNBox
+	cbi	sysDBData,#3	; was operation confirmed?
+	bne	99$
+	lda	FileDrv	; reset the file drive
+	jsr	SetDevice
+	ldw	EndOData,#DataStart
+	jsr	ClrBuf2End	; Zero out the damn buffer
+	jsr	i_LdMod	; swap in the open/close mod
+	.byte	1
+	jsr	VPRGbase+15	; loadfile (for recovering)
+	cpx	#0
+	bne	99$
+	jsr	i_LdMod	; swap in the open/close mod
+	.byte	1
+	jsr	VPRGbase+18	; recover EndOData
+	ldb	SaveFlag,#0	; clear all savable offence
+	lda	Mode	; now do mode refreshes
+	bne	10$
+	jsr	i_LdMod	; must be mode "0", screen
+	.byte	2
+	jmp	VPRGbase + 15	; now reset up mode
+10$:	cmp	#1
+	bne	11$	; are we in menu mode?
+	jsr	i_LdMod
+	.byte	4
+	jmp	VPRGbase + 15; now reset up this mode
+11$:	cmp	#2
+	bne	12$	; are we in dialog mode?
+	jsr	i_LdMod	; must be mode 3, screen
+	.byte	5
+	jmp	VPRGbase + 15	; now reset up mode
+12$:	rts	; ** other modes
+99$:	rts
+RCTxt0:	.byte	$18,"Recover last saved data?",27,0
+
+
+R_DoRename:
+	jsr	GotoFirstMenu
+	lda	FileDrv	; reset the file drive
+	jsr	SetDevice
+	jsr	DisMode	; disable events, please
+	jsr	i_LdMod	; swap in the open/close mod
+	.byte	1
+	jsr	VPRGbase+21	; rename file
+	jmp	ReMode
+	rts
+
+
+
+R_DoExport:	jsr	GotoFirstMenu
+	lda	FileDrv	; reset the file drive
+	jsr	SetDevice
+	jsr	DisMode	; disable events, please
+	jsr	i_LdMod	; swap in the export module
+	.byte	3
+	jsr	VPRGbase+0	; do the deed
+	jmp	ReMode
+	rts
+
+
+.ramsect
+; ******* Resident module variables
+EndOData:	.block	2	; Data Storage End Pointer
+DummyH:	.block	7	; have no idea what this is for
+DataStart:	.block	4000	; main data block
+DataEndP:	.block	1	; place holder only
+
+;***** Main menu block
+Mode:	.block	1	; screen mode
+MenuMode:	.block	1	; whether menus been created
+MenuSave:	.block	6	; save all menu x and y
+
+;***** Main file block
+FileName:	.block	20
+FileDrv:	.block	1
+SaveFlag:	.block	1
+
+;***** Temporary storage
+Temp:	.block	20	; just a simple happy work area
+NextTmp:	.block	2	; byte total for NextItem
+SaveMgn:	.block	2	; save the rightMargin for GetText
+
+;***** Selection variables -- Common
+OSelBox:	.block	10	; the original selection box
+OSelByts:	.block	4
+SelBox:	.block	10	; the box in motion
+SelByts:	.block	4
+SelMove:	.block	6	; dimensions for move box
+SelResi:	.block	6	; dimensions for resiZe box
+SelItem:	.block	2	; pointer to item moved or resiZed
+SelTool:	.block	1	; whether move or resiZe
+SelCode:	.block	1	; what type of thing is selected
+
+;******* SHARED GLOBALS!!
+GLOBAL:	
+Tool:	.block	1	; 1,3:Toolbar tool#, 1 byte
+DragFlag:	.block	1	; 1,3:Status of motion, 1 byte
+DragX:	.block	3	; 1,3:Upper left of motion, 3 bytes
+DragX2:	.block	3	; 1,3:Last bottom of motion, 3 bytes
+LbxPattern:	.block	1	; 1,3:Line box pattern, 1 byte
+FilPattern:	.block	1	; 1,3:Fill pattern, 1 byte
+TxtPattern:	.block	1	; 1,3:Text pattern, 1 byte
+ScreenMode:	.block	1	; 1:0=normal, 1=full screen
+
+
+DlgDims:			; 3:dimensions of dialog box, 6 bytes
+PlusBox:	.block	6	; 2:dimensions of plusbox, 6 bytes
+DlgByts:			; 3:dialog box right/left bytes, 4 bytes
+PlusType:	.block	1	; 2:whether VERT or HORZ, 1 byte
+SelLevel:	.block	1	; 2:menu level selected, 1 byte
+SelPapy:	.block	2	; 2:parent of selected item, 2 bytes
+Find4Me:	.block	1	; 2:what code to look for, 1 byte
+NextHere:	.block	2	; 2:pointer after FoundOne, 2 bytes
+DlgPtr:			; 3:ptr to dialog box item, 2 bytes
+FounDims:	.block	2	; 2:dimensions of found one,6 bytes
+Mod3IFlg:	.block	2	; 3:pointer to any INPUT flag, 2bytes
+Mod3ISZ:	.block	1	; 3:temporary siZe pointer, 1 byte
+	.block	1
+LastB4:	.block	1	; 2:what code to stop at
+ChkPlace:	.block	3	; 2:mousey, then mousex
+
+;******* mode 3  -- must be global *****
+
+</pre></body></html>

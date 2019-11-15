@@ -1,0 +1,1078 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;******************************
+;*  S/geoBMode3b
+;*  Click, main drags, creates
+;******************************
+
+.if 	Pass1
+.noeqin
+.noglbl
+.include	GEOSequates
+.eqin
+.glbl
+.endif
+
+
+.psect
+
+Mod3Click:	cbi	mouseData,#0	; is the button down or up?
+	beq	11$
+	cbi	DragFlag,#1	; need to permaniZe?
+	bne	10$
+	ldb	DragFlag,#2
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	ldw	A5,#SelBox	; set up old dimensions for all ops
+	jsr	SelLoad
+	jsr	RecoverRectangle	; first undo the old box
+	jsr	Mod3Drag	; make it permanent!
+10$:	ldb	DragFlag,#0	; clear the drag flag
+	rts		; button is released
+11$:	ldb	A2L,#1	; start to check buttons, from 1
+12$:	jsr	ChkClick	; check the main buttons
+	cpx	#0
+	beq	16$	; found a click!
+	inc	A2L
+	cbi	A2L,#14	; until 14, keep checking...
+	ble	12$	; no button pressed, so in screen?
+90$:	jsr	LdDialog
+	jsr	IsMseInRegion	; not full screen, so check area
+	cmp	#$ff
+	bne	10$	; it's outside protected area, so exit
+13$:	cbi	Tool,#12	; do not set drag mode for non-tools
+	bge	15$
+	cmp	#2	; the select tool is a special case
+	bne	14$
+	jmp	SelClick	; handle clicks for selection specially
+14$:	ldb	DragFlag,#1	; you can set the drag flag
+	mvw	mouseXPos,DragX
+	mvb	mouseYPos,DragX+2  ; save drag start
+	ldw	DragX2,#0
+	ldb	DragX2+2,#$ff	; init old drag point
+15$:	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	rts		; nothing doin
+16$:	cpb	A2L,Tool
+	beq	15$	; don't bother selected tool
+	cbi	A2L,#12
+	blt	18$	; only 1-11 are REAL tools
+	bne	17$	; do a quick patt butt check
+	cbi	Tool,#2	; is selection tool selected?
+	bne	17$
+	jmp	PattEdit	; do selected patts now, please
+17$:	ldb	dispBufferOn,#ST_WR_FORE
+	mvb	A2L,Temp
+	jsr	ChkClick	; invert the pseudo-tool
+	jsr	InvertRectangle
+	jmp	Mod3ClkO	; and handle it (undo, dialog, etc)
+18$:	jsr	ClrSelect	; clear selection just in case
+	ldb	dispBufferOn,#ST_WR_FORE
+	mvb	A2L,Temp	; temporarily save new tool
+	mvb	Tool,A2L	; and restore old tool to uninvert
+	jsr	ChkClick	; to get R2-R4
+	jsr	InvertRectangle	; to uninvert old tool
+	mvb	Temp,Tool	; now permaniZe the new tool
+	mvb	Tool,A2L	; and set up to invert it...
+	jsr	ChkClick	; to get R2-R4
+	jsr	InvertRectangle	; to invert new tool
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	rts
+
+Mod3ClkO:	cbi	Temp,#12
+	beq	13$	; the pattern button was chosen
+	cmp	#13
+	bne	14$	; this is dialog
+	ldw	A0,#DataStart
+10$:	ldy	#0
+	lda	(A0),y
+	cmp	#51	; found the dbox?
+	beq	11$
+	jsr	NxtItem
+	cpw	A0,EndOData
+	blt	10$
+	rts
+11$:	jmp	DlgPatt
+14$:	cmp	#14	; clicked undo?
+	bne	99$
+	jsr	ClrSelect	; select is special for undo
+	jsr	UnDo
+99$:	rts
+	;** here begins the pattern box button stuff
+13$:	jmp	PattBox
+
+UnDo:	cwi	EndOData,#DataStart ; is there anything in there?
+	beq	10$
+	jsr	FindDLast	; look for the undoable
+	cwi	A1,#0
+	beq	10$	; nothing found, so don't undo
+	ldw	R0,#UnDoDlg
+	jsr	DoDlgBox
+	cbi	sysDBData,#3	; confirm the procedure
+	beq	11$
+10$:	jmp	ReMain3
+11$:	mvw	A1,A0	; set source
+	adw	A3,A0	; by adding length
+	ldy	#0
+12$:	lda	(A0),y
+	sta	(A1),y	; copy data over
+	cpw	A0,EndOData
+	beq	13$	; if just wrote the end, stop
+	inw	A0
+	inw	A1	; otherwise, increment and continue
+	bra	12$
+13$:	sbw	A3,EndOData	; pull back EndOData
+	jsr	ClrBuf2End	; Zero out all we've found...
+	ldb	SaveFlag,#1	; set the damn save flag
+	jmp	ReMain3
+
+FindDLast:	ldw	A0,#DataStart	; start at beginning
+	ldw	A2,#0	; with no movement, bytes=A2
+	ldw	A1,#0	; save the last move
+12$:	ldy	#2
+	lda	(A0),y	; get the supposed bytes L & h
+	sta	A2L
+	iny
+	lda	(A0),y	; get the supposed bytes l & H
+	sta	A2H
+	ldy	#0
+	lda	(A0),y
+	cmp	#52
+	blt	13$
+	cmp	#70
+	bge	13$
+	mvw	A0,A1	; found one, so save it
+	mvw	A2,A3	; and save its width
+13$:	adw	A2,A0	; skip ahead = A0
+	cpw	A0,EndOData	; have we reached the end yet?
+	blt	12$	; no, so keep looping
+	rts		; A1 should point to last now
+
+UnDoDlg:	.byte	$80 | $01
+	.byte	11	;add text
+	.byte	$0d,$12
+	.word	UDTxtA
+	.byte	$03,$01,$47	;Yes icon
+	.byte	$04,$0f,$47	;No icon
+	.byte	0	;end of defintion
+UDTxtA:	.byte	$18,"Undo last operation?",27,0
+
+
+Mod3Recv:	jsr	RecoverRectangle
+	jsr	ClrSelect	; kinda dangerous!!
+	jmp	ReTool
+
+Mod3Drag:	lda	DragFlag	; don't bother if not set
+	bne	89$
+	rts
+89$:	mvw	mouseXPos,Temp   ; save your mousex and y
+	mvb	mouseYPos,Temp+2
+	cbi	DragFlag,#2	; if making permanent...
+	bne	90$
+	mvw	DragX2,Temp
+	mvb	DragX2+2,Temp+2
+	ldb	DragX2+2,#$ff	; ensure a write
+	cbi	Tool,#2	; selections don't permaniZe
+	beq	90$
+	jsr	EntryDo	; save the entry in buffer
+	beq	90$	; leave on an error
+	jmp	ReMain3
+90$:	jsr	LdDialog
+	cbi	SelCode,#51	; dialog is code #51
+	bne	88$
+	mvw	rightMargin,R4	; and has different limitations
+	mvb	windowBottom,R2H
+	ldw	R3,#32
+	ldb	R2L,#15
+88$:	ldy	#0
+	jsr	IsMseInRegion	; protect these
+	cmp	#$ff
+	beq	91$	; it's out, so exit
+	rts
+91$:	jmp	DragTols
+
+
+DragTols:	cbi	DragFlag,#2	; if making permanent...
+	beq	92$
+	ldb	dispBufferOn,#ST_WR_FORE
+92$:	cbi	Tool,#1	; is it a line?
+	bne	10$
+	jmp	DragLine
+10$:	cmp	#3	; this would be linebox
+	bne	11$
+	jmp	DragOBox
+11$:	cmp	#4	; filled box
+	bne	12$
+	jmp	DragFBox
+12$:	cmp	#5	; text
+	bne	13$
+	jmp	StartText
+13$:	cmp	#6
+	bne	15$	; a scrap-based icon or bitmap?
+	jmp	Iconfirm
+15$:	cmp	#8	; these are system butts
+	bne	16$
+	jmp	SysButts
+16$:	cmp	#9
+	bne	17$
+	jmp	DlgInpt
+17$:	cmp	#10
+	bne	18$
+	jmp	DlgFBox
+18$:	cmp	#11
+	bne	19$
+	jmp	DlgVar
+19$:	cmp	#7
+	bne	20$
+	ldb	DragFlag,#0
+	jsr	MaxButts
+	bne	99$
+	jmp	Iconfirm
+20$:	cbi	Tool,#2	; moving/resiZing selection?
+	bne	99$	; nope.. and its the last tool
+	jmp	DragSel
+99$:	rts		; only these are done for now
+
+StartText:	ldw	R15,#DataEndP	; check memory remaining
+	sbw	EndOData,R15	; check for 16 bytes
+	cwi	R15,#17
+	bge	90$
+	ldb	DragFlag,#0	; clear the dragging
+	jsr	NoMem
+	ldx	#1	; nope, so leave
+	rts
+90$:	lda	DragX+2	; see if text inside dialog box
+	add	#8
+	sta	Temp+14
+	cpb	Temp+14,DlgDims+5
+	blt	11$	; nothing too far down
+10$:	rts
+11$:	lda	DragX+2
+	sub	#4
+	sta	Temp+14
+	cpb	Temp+14,DlgDims+2
+	blt	10$	; nothing up too far
+ST2:	ldb	Tool,#14	; un-set the tool
+	jsr	MouseOff
+	jsr	ClrBuf2End	; a Zero terminator is important
+	ldb	DragFlag,#0	; disable all that nasty stuff
+	mvw	EndOData,R0
+	avw	#10,R0	; to get past stuff
+	ldy	#0
+	tya
+	sta	(R0),y	; to clear text buffer
+	ldb	R1L,#0	; no control stuff
+	ldb	R2L,#$f0	; no minimum input!
+	ldw	Temp,#DataEndP
+	sbw	EndOData,Temp
+	cwi	Temp,#$0d	; check remaining buffer space
+	blt	99$
+	cwi	Temp,#$f0	; now find usable max
+	bge	12$
+	svb	#8,Temp
+	mvb	Temp,R2L	; get usable max chars
+12$:	mvw	DragX,R11 ; starting column
+	mvb	DragX+2,R1H ; starting underline
+	avb	#6,DragX+2	; putstring adjustment
+	ldw	keyVector,#CRText
+	ldb	dispBufferOn,#ST_WR_FORE
+	mvw	rightMargin,SaveMgn	 ; save the margin
+	mvw	DlgDims+3,rightMargin ; and do this too
+	lda	TxtPattern
+	sta	$2e	; give me pattern!!
+	jmp	GetString
+99$:	jmp	NoMem
+
+DlgVar:	ldb	DragFlag,#0	; only one input allowed
+	lda	DragX+2	; see if text inside dialog box
+	add	#8
+	cmp	DlgDims+5
+	blt	11$	; nothing too far down
+10$:	rts
+11$:	lda	DragX+2
+	sub	#4
+	cmp	DlgDims+2
+	blt	10$	; nothing up too far
+	ldw	R15,#DataEndP	; DragX has start, Temp has mousexy
+	sbw	EndOData,R15	; check for 15 bytes
+	cwi	R15,#16
+	bge	DlgVar2
+	jmp	NoMem
+DlgVar2:	jsr	NPrep
+	ldw	R0,#VarDlg	; now get details
+	jsr	DoDlgBox
+	cbi	sysDBData,#2
+	bne	12$	; a cancel, of course, exits
+	rts
+12$:	jsr	DlgNDone	; find new string siZe
+	beq	13$
+	rts		; some sort of error, so exit
+13$:	ldb	Mod3ISZ,#0
+	ldw	Temp+2,#12
+	mvb	curHeight,Temp+4
+	sbb	Temp+4,DragX+2
+	lda	#58
+	jsr	DlgVSta
+	jsr	UnWrVar
+	rts		; yer done?!
+DlgVSta:	jsr	EntrySta	; save code
+	avb	#12,Temp
+	lda	#0
+	jsr	EntrySta	; then save pattern?!
+	lda	Temp
+	jsr	EntrySta
+	lda	Temp+1	; then save siZe
+	jsr	EntrySta
+	jsr	EntryTXY	; save startXY
+	adb	Temp+4,DragX+2
+	adw	Temp+2,DragX	; adjust endXright
+	jsr	EntryTXY
+	lda	Mod3ISZ
+	jsr	EntrySta	; don't forget this damn thing
+	mvw	EndOData,A0
+	adw	Temp,EndOData	; make new data end
+	rts
+
+CRText:	mvw	SaveMgn,rightMargin	 ; save the margin
+	ldb	Tool,#5	; re-set the tool
+	jsr	EntryDo
+	beq	11$	; an error, so exit
+	jmp	CRout
+11$:	mvw	EndOData,A0	; reset our pointer...
+	mvw	R11,Temp	; save true end x for a spell...
+	ldy	#4
+	lda	DragX
+	sta	R3L	; and save for restore box
+	sta	Temp+2	; and for reprint, save
+	sub	DlgDims	; this is an offset
+	sta	(A0),y	; get mousex<
+	iny
+	lda	DragX+1	; get mousex>
+	sta	R3H	; and save for restore box
+	sta	Temp+3	; and for reprint, save
+	sbc	DlgDims+1	; this is an offset
+	sta	(A0),y
+	iny
+	lda	DragX+2	; get mousey
+	sta	R1H
+	sub	curHeight
+	sta	R2L	; save the restore box top
+	sub	DlgDims+2	; this is an offset
+	sta	(A0),y	; save the y position
+	iny
+	lda	Temp	; R11 saved here before
+	sub	DlgDims	; this is an offset
+	sta	(A0),y	; save end x lsb
+	iny
+	lda	Temp+1	; R11 saved here before
+	sbc	DlgDims+1	; this is an offset
+	sta	(A0),y	; save end x hsb
+	iny
+	lda	R1H
+	add	#2
+	sta	R2H	; and save again for restore below
+	sub	DlgDims+2	; this is an offset
+	sta	(A0),y	; save end y
+	iny
+	ldw	Temp,#0	; for text siZe counting
+	lda	(A0),y	; first check for ANYTHING!
+	bne	12$
+	jmp	CRout
+12$:	lda	(A0),y	; now check for END
+	beq	13$
+	iny
+	inc	Temp	; keep going til end is found
+	bra	12$
+13$:	avb	#11,Temp
+	ldy	#2
+	lda	Temp	; save actual siZe
+	sta	(A0),y
+	adw	Temp,EndOData	; make new data end
+	mvw	A0,R0	; restore string pointer
+	avw	#10,R0	; to be pointing at string
+	mvw	rightMargin,R4
+	jsr	RecoverRectangle ; here is the restore!!!
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	mvw	Temp+2,R11	; starting x saved here earler
+	jsr	PutString	; now permaniZe the string
+CRout:	lda	#0
+	sta	$2e	; clear pattern
+	jmp	UserMode
+
+DragLine:	jsr	PreDrag
+	bcc	10$	; if carry clear, then exit
+	mvw	DragX,R3	; orig col point
+	mvb	DragX+2,R11L	; orig row point
+	mvw	Temp,R4	; new mouse x
+	mvb	Temp+2,R11H	; new mouse y
+	lda	FilPattern	; set up the drawing pattern
+	jsr	SetPattern	; from the FilPattern
+	lda	#0	; sets norecover flag
+	sec		; sets the draw flag
+	jsr	DrawLine	; draw the new line
+10$:	jmp	DragOut	; get out now
+
+DragOBox:	jsr	PreDrag
+	bcc	10$	; if carry clear, then exit
+	jsr	PrepBox	; get dimensions ready
+	lda	LbxPattern	; set up the drawing pattern as full
+	jsr	FrameRectangle
+10$:	jmp	DragOut	; get out now
+
+DragFBox:	jsr	PreDrag
+	bcc	10$	; if carry clear, then exit
+	lda	FilPattern	; set up the drawing pattern
+	jsr	SetPattern	; from the FilPattern
+	jsr	PrepBox	; get dimensions ready
+	jsr	Rectangle
+10$:	jmp	DragOut	; get out now
+
+
+PreDrag:	cbi	DragX2+2,#$ff	; dragged before?
+	beq	21$
+	cpw	DragX2,Temp
+	bne	10$	; are we in the same place?
+	cpb	DragX2+2,Temp+2
+	beq	32$	; yes, so just get out
+10$:	mvb	DragX+2,R2L	; guess that the orig is the lowest
+	mvb	DragX2+2,R2H
+	cpb	R2L,R2H	; see if it IS the lowest
+	blt	11$	; ok so far
+	mvb	DragX2+2,R2L
+	mvb	DragX+2,R2H	; wrong way on the y, so fix
+11$:	mvw	DragX,R3
+	mvw	DragX2,R4	; guess that the orig is the lowest
+	cpw	R3,R4
+	blt	12$	; right, so continue
+	mvw	DragX2,R3
+	mvw	DragX,R4	; wrong way on the x, so fix
+12$:	jsr	RecoverRectangle
+21$:	sec
+	rts
+32$:	clc
+	rts
+
+PrepBox:
+10$:	mvb	DragX+2,R2L	; guess that the orig is the lowest
+	mvb	Temp+2,R2H
+	cpb	R2L,R2H	; see if it IS the lowest
+	blt	11$	; ok so far
+	mvb	Temp+2,R2L
+	mvb	DragX+2,R2H	; wrong way on the y, so fix
+11$:	mvw	DragX,R3
+	mvw	Temp,R4	; guess that the orig is the lowest
+	cpw	R3,R4
+	blt	12$	; right, so continue
+	mvw	Temp,R3
+	mvw	DragX,R4	; wrong way on the x, so fix
+12$:	rts
+
+DragOut:	mvw	Temp,DragX2	; make THIS drawn line, the last...
+	mvb	Temp+2,DragX2+2
+	rts
+
+SysButts:	cmp	#8
+	bne	10$
+	ldb	DragFlag,#0
+	jsr	MaxButts
+	beq	11$
+10$:	rts
+11$:	ldw	R15,#DataEndP	; DragX has start, Temp has mousexy
+	sbw	EndOData,R15	; check for 10 bytes
+	cwi	R15,#11
+	bge	12$
+	jmp	NoMem
+12$:	ldw	R0,#SysBoxD	; which system button?
+	jsr	DoDlgBox
+	cbi	sysDBData,#20
+	beq	10$	; cancel
+13$:	lda	sysDBData
+	asl	a
+	tay
+	lda	SysBoxT,y
+	sta	SysButt2
+	iny
+	lda	SysBoxT,y
+	sta	SysButt2+1
+	mvw	EndOData,A0
+	ldy	#5
+	lda	#6
+	sta	(A0),y
+	iny		; save dimensions
+	lda	#16
+	sta	(A0),y
+	iny
+	lda	#0
+	sta	(A0),y
+	avw	#8,A0	; set total bytes
+	jmp	IconDo	; now actually draw the thing
+MaxButts:	lda	#59
+	jsr	Srch4nCt	; so count them
+	stx	R0H
+	lda	#52
+	jsr	Srch4nCt
+	txa
+	add	R0H
+	cmp	#8
+	ble	98$
+	ldw	A2,#SysB1
+	jsr	CNCLBox
+	ldx	#1
+	rts
+98$:	ldx	#0
+99$:	rts
+SysB1:	.byte	$18,"Max. is 8 buttons.",27,0
+
+DlgFBox:	ldb	DragFlag,#0	; only one input allowed
+	lda	#56
+	jsr	Srch4nCt	; so count them
+	beq	10$
+	ldw	A2,#DlgIF1
+	jmp	CNCLBox
+99$:	ldw	A2,#DlgIF2
+	jmp	CNCLBox
+10$:	mvb	DlgDims+5,R15L	; see how far down it is
+	sbb	DragX+2,R15L	; subtract bottom of dialog box
+	cbi	R15L,#88
+	blt	99$	; has to be at least X from top
+	mvw	DlgDims+3,R15
+	sbw	DragX,R15	; now check the width
+	cwi	R15,#124
+	blt	99$
+	ldw	R15,#DataEndP	; DragX has start, Temp has mousexy
+	sbw	EndOData,R15	; check for 15 bytes
+	cwi	R15,#16
+	bge	11$
+	jmp	NoMem
+11$:	lda	#7
+	sta	Mod3ISZ
+DlgFbox2:	jsr	DlgFBnam
+	jsr	NPrep
+	ldw	R0,#FboxDlg	; now get details
+	jsr	DoDlgBox
+	cbi	sysDBData,#2
+	bne	12$	; a cancel, of course, exits
+	rts
+12$:	jsr	DlgNDone	; find new string siZe
+	beq	13$
+	rts		; some sort of error, so exit
+13$:	jmp	DlgFBox3
+DlgIF1:	.byte	$18,"Only one filebox allowed.",27,0
+DlgIF2:	.byte	$18,"Filebox is too large.",27,0
+DlgNDone:	mvw	EndOData,A0
+	ldw	Temp,#0
+	ldy	#11
+	lda	NTemp
+	bne	13$
+	ldb	sysDBData,#2
+	jsr	ClrBuf2End	; reclear what we've typed
+	ldx	#$ff
+	rts
+13$:	lda	NTemp-11,y
+	sta	(A0),y	; now check for END
+	beq	14$
+	iny
+	inc	Temp	; keep going til end is found
+	bra	13$
+14$:	ldx	#0	; return no error
+	rts
+
+DlgFBox3:	ldw	Temp+2,#124
+	ldb	Temp+4,#88
+	lda	#56
+	jsr	DlgVSta
+	jsr	DrawFBox
+	rts		; yer done?!
+DrawFBox:	jsr	UnWrBox
+	jsr	StdDlgAdj
+	lda	#0
+	jsr	SetPattern
+	jsr	Rectangle	; clear box first
+	jsr	UnWrBox
+	jsr	StdDlgAdj
+	lda	#$ff
+	jsr	FrameRectangle	; then outline
+	jsr	UnWrBox
+	jsr	StdDlgAdj
+	mvb	R2H,R2L
+	svb	#16,R2L
+	lda	#$ff	; then little bottom box
+	jmp	FrameRectangle
+DlgFBnam:	ldw	A8,#DlgFnams-1
+	ldx	#0
+10$:	cpx	Mod3ISZ
+	beq	12$
+11$:	inw	A8
+	ldy	#0
+	lda	(A8),y
+	bne	11$
+	inx
+	bne	10$
+12$:	inw	A8
+	rts
+DlgFnams:	.byte	"Non-GEOS",0,"BASIC",0,"Assembly",0,"Data",0,"System",0
+	.byte	"Desk Acc.",0,"Application",0,"App. Data",0,"Font",0
+	.byte	"Printer Drv.",0,"Input Drv.",0,"Disk Dev.",0,"Sys. Boot",0
+	.byte	"Temp",0,"Auto Exec.",0,"Input 128",0
+
+DlgInpt:	ldb	DragFlag,#0	; only one input allowed
+	lda	#54
+	jsr	Srch4nCt	; so count them
+	beq	10$
+	ldw	A2,#DlgIT
+	jsr	CNCLBox
+99$:	rts
+10$:	mvb	DragX+2,R15L	; see how far down it is
+	sbb	DlgDims+2,R15L	; subtract top of dialog box
+	cbi	R15L,#10
+	blt	99$	; has to be at least X from top
+	ldw	R15,#DataEndP	; DragX has start, Temp has mousexy
+	sbw	EndOData,R15	; check for 15 bytes
+	cwi	R15,#16
+	bge	11$
+	jmp	NoMem
+11$:	lda	#10
+	sta	Mod3ISZ
+DlgInpt2:	ldw	A2,#DlgR1+2	; make the buffer siZe
+	lda	Mod3ISZ
+	jsr	HexB	; make the number
+	jsr	NPrep
+	ldw	R0,#InptDlg	; now get details
+	jsr	DoDlgBox
+	cbi	sysDBData,#2
+	bne	12$	; a cancel, of course, exits
+	rts
+12$:	jsr	DlgNDone	; find new string siZe
+	beq	13$
+	rts		; some sort of error, so exit
+13$:	jmp	DlgInpt3
+
+
+DlgInpt3:	mvb	curHeight,Temp+4
+	ldw	Temp+2,#15
+	mvw	DragX,$84be
+	mvb	DragX+2,$84c0
+	sbb	curHeight,DragX+2	; getstring adjustment
+	mvw	EndOData,Mod3IFlg
+	lda	#54
+	jsr	DlgVSta
+	jsr	Crsr3On
+	rts		; yer done?!
+DlgIT:	.byte	$18,"Only one input allowed.",27,0
+NPrep:	mvw	EndOData,A9
+	ldy	#11
+10$:	lda	(A9),y
+	sta	NTemp-11,y
+	beq	11$
+	iny
+	bne	10$
+11$:	iny
+	lda	#0
+12$:	sta	NTemp-11,y
+	iny
+	cpy	#45
+	blt	12$
+	ldw	A9,#NTemp
+	rts
+
+EntryDo:	ldw	R15,#DataEndP	; DragX has start, Temp has mousexy
+	sbw	EndOData,R15	; check for 10 bytes
+	cwi	R15,#11
+	bge	10$
+	jsr	NoMem
+	ldx	#1	; nope, so leave
+	rts
+10$:	ldb	SaveFlag,#1	; flag the file as dirty
+	cbi	Tool,#5	; was it a line, linebox, or fbox?
+	bge	13$
+	cmp	#1	; a line needs no adjustment
+	beq	11$
+	jsr	EntrySwap	; possibly transpose boxes
+11$:	jsr	EntryXY	; then save data & startx
+	ldx	#0
+12$:	lda	Temp,x	; save endx,y
+	jsr	EntrySta
+	inx
+	cpx	#3
+	blt	12$
+	jmp	EntryDone
+13$:	cmp	#5	; was it a text tool?
+	bne	14$
+	jsr	EntryXY	; just do position stuff for txt...
+14$:	ldx	#0
+	rts
+
+EntryDone:	mvw	A0,EndOData	; save new end of data, exit
+	ldx	#0
+	rts
+
+EntrySta:	ldy	#0	; easy way to put to (A0),y
+	sta	(A0),y	; and increment A0 as well...
+	inw	A0
+	rts
+
+EntryXY:	mvw	EndOData,A0	; yes, so write 10 bytes...
+	ldy	Tool
+	lda	ToolTab,y
+	jsr	EntrySta	; save tool
+	ldy	Tool	; get the right pattern
+	lda	LbxPattern-3,y	; get the right pattern for the job
+	jsr	EntrySta	; save pattern
+	lda	#10
+	jsr	EntrySta	; save lsb of bytes
+	lda	#0
+	jsr	EntrySta	; save hsb of bytes
+	ldx	#0
+	cbi	Tool,#5
+	bne	10$
+	jmp	EntryTXY
+10$:	lda	DragX,x	; save startx,y
+	jsr	EntrySta
+	inx
+	cpx	#3
+	blt	10$
+	rts
+
+EntryTXY:	lda	DragX	; for the adjustable XY folks
+	sub	DlgDims
+	jsr	EntrySta
+	lda	DragX+1
+	sbc	DlgDims+1
+	jsr	EntrySta
+	ldb	SaveFlag,#1	; flag the file as dirty
+	lda	DragX+2	; DragY?
+	sub	DlgDims+2
+	jsr	EntrySta
+	rts
+
+EntrySwap:	cpb	Temp+2,DragX+2
+	bge	10$	; bottom is lower (greater) than start?
+	lda	Temp+2
+	tax
+	lda	DragX+2	; no, so swap the y's
+	sta	Temp+2
+	txa
+	sta	DragX+2
+10$:	cpw	Temp,DragX
+	bcs	11$	; right is righter (greater) than start?
+	mvw	Temp,Temp+4
+	mvw	DragX,Temp
+	mvw	Temp+4,DragX	; no, so swap 'em
+11$:	rts
+
+ToolTab:	.byte	0,60,0,61,62,53,63,59,52,54,56,58
+
+Iconfirm:	ldb	DragFlag,#0	; this is necessary
+	ldw	A2,#ICTxtA
+	jsr	YNBox
+	cbi	sysDBData,#3	; confirm the procedure
+	beq	11$
+	ldx	#0
+10$:	jsr	FError	; do file errors if any
+	lda	FileDrv
+	jsr	SetDevice
+	rts
+11$:	lda	DAABdrv	; set up the scrap device
+	jsr	SetDevice
+	ldw	R6,#ICFNA
+	ldb	$886e,#$ff
+	jsr	FindFile
+	cpx	#0
+	bne	10$	; if there were errors, exit (for now)
+	ldy	#1
+	lda	(R5),y
+	sta	R1L	; get initial track/sector info
+	iny
+	lda	(R5),y
+	sta	R1H	; now get the first photo scrap blk
+	ldw	R4,#$8000
+	jsr	GetBlock
+	ldw	R5,#0	; clear this pointer
+	mvw	EndOData,A0
+	avw	#5,A0	; puts first byte on rowbyte
+12$:	jsr	ReadByte
+	cpx	#0
+	beq	13$	; can we continue?
+	cpx	#11
+	beq	14$	; was eof reached?
+	bra	10$	;****arghhh!!! errors on disk!!!!
+13$:	ldy	#0
+	sta	(A0),y	; store byte
+	inw	A0	; increment pointer
+	cwi	A0,#DataEndP	; see if end is reached
+	blt	12$
+	lda	FileDrv	; reset the drive, dammit
+	jsr	SetDevice
+	jmp	NoMem		; ** this is a bad bad error!!!!!
+14$:	lda	FileDrv	; reset the drive, dammit
+	jsr	SetDevice
+	ldb	sysDBData,#0
+	jmp	IconDo	; ** see next page
+ICTxtA:	.byte	$18,"Paste photo scrap?",27,0
+ICFNA:	.byte	"Photo Scrap",0
+
+IconDo:	mvw	A0,A1	; save this valuable pointer
+	sbw	EndOData,A1	; get the total bytes, hopefully
+	mvw	EndOData,A2
+	ldy	#7
+	lda	(A2),y	; check an over-height first
+	sta	Temp+1	; save for later
+	sta	Temp+9	; store Zero for dlgdims,y
+	beq	16$
+15$:	ldw	A2,#ICTxtB
+	jsr	CNCLBox
+	rts
+16$:	ldy	#6	; get the actual height byte
+	lda	(A2),y
+	iny
+	sta	(A2),y	; save the height byte
+	sta	R2H	; save height for bitmapup
+	sta	Temp	; get the height
+	ldb	DragX+3,#0	; make the y start a word
+	adw	DragX+2,Temp	; add y position to height
+	mvb	DlgDims+5,Temp+8 ; now have bottom in temp+8
+	cpw	Temp,Temp+8	; see if actual height > dlg bottom
+99$:	bge	15$	; if it's too big.. bye bye!
+	ldy	#5
+	lda	(A2),y	; now get actual width byte
+	iny		; store width byte
+	sta	(A2),y	; save it for later
+	sta	R2L	; save width for bitmapup
+	mvb	DragX+2,R1H	; set the start y for later
+	ldy	#5
+	sta	(A2),y	; save the column byte for later
+	ldw	A4,#DragX	; convert pointer x to col byte
+	jsr	RORING
+	mvb	DragX,R1L	; save col start for bitmap!
+	ldy	#4
+	sta	(A2),y	; save the column byte for later
+	adb	R2L,DragX	; add width to pointer col byte
+	inc	DragX	; and one more for good measure
+	cpb	DragX,DlgByts+2 ; compare it to dlg right
+	bge	99$
+	ldb	DragFlag,#0	; it all ends here
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+18$:	mvw	A2,R0
+	avw	#8,R0	; position the gfx pointer
+	cbi	Tool,#8
+	bne	19$
+	mvw	SysButt2,R0
+19$:
+IconDone:	jsr	BitmapUp	; PRAY!!!!
+	jsr	BmapRAdj	; now adjust saved codes
+	ldy	Tool	; get the code for this one
+	lda	ToolTab,y
+	ldy	#0
+	sta	(A2),y	; store the tool, now
+	iny
+	lda	sysDBData	; this is the icon pattern?!
+	sta	(A2),y
+	iny		; skip the pattern to bytes
+	lda	A1L
+	sta	(A2),y	; store total bytes lb
+	iny
+	lda	A1H
+	sta	(A2),y	; store total bytes hb
+	mvw	A0,EndOData	; now save the data!
+	ldb	SaveFlag,#1	; set the save-me flag
+	jmp	UserMode	; undo everything
+ICTxtB:	.byte	$18,"Bitmap is too large.",0
+
+FboxDlg:	.byte	$80 | $01
+	.byte	$01,$02,$46	;OK icon
+	.byte	$02,$0f,$46	;Cancel icon
+	.byte	11	;add text
+	.byte	$10,$0d
+	.word	DIF1
+	.byte	11	;add text
+	.byte	$10,$23
+	.word	DIF2
+	.byte	11	;add text
+	.byte	$10,$37
+	.word	DIF3
+	.byte	18	;user icon
+	.byte	$0f,$2e
+	.word	DlgFcon
+	.byte	13	;GetString
+	.byte	$5f	;XOffset
+	.byte	$1e	;YOffset
+	.byte	A9	;gives r# to contain pntr to text buffer. 5-10
+	.byte	16	;maximum # of chars to accept.
+	.byte	12	;add text
+	.byte	$45,$37
+	.word	A8
+	.byte	0	;end of defintion
+DIF1:	.byte	$18,"FileBox details:",27,0
+DIF2:	.byte	$18,"File class:",27,0
+DIF3:	.byte	$18,"File type:",27,0
+DlgFcon:	.word	DlgIpic	;graphic location
+	.word	0	;leave this at 0
+	.byte	6	;width, set below
+	.byte	16	;height, set below
+	.word	DlgFButt	;location of action routine
+DlgFButt:	cwi	$3a,#208	; check mousexpos
+	blt	11$
+10$:	cbi	Mod3ISZ,#0
+	beq	DlgFtine
+	dec	Mod3ISZ
+	bra	DlgFtine
+11$:	inc	Mod3ISZ
+	cbi	Mod3ISZ,#16
+	beq	10$
+DlgFtine:	jsr	DlgFBnam
+	lda	#0
+	jsr	SetPattern	; clear it first
+	ldw	R3,#38+94
+	ldw	R4,#38+142
+	ldb	R2H,#32+58
+	ldb	R2L,#32+42
+	jsr	Rectangle
+	mvw	A8,R0	; now redisplay the number
+	ldb	R1H,#32+55
+	ldw	R11,#38+95
+	jmp	PutString
+
+InptDlg:	.byte	$80 | $01
+	.byte	$01,$02,$46	;OK icon
+	.byte	$02,$0f,$46	;Cancel icon
+	.byte	11	;add text
+	.byte	$10,$0d
+	.word	DIT1
+	.byte	11	;add text
+	.byte	$10,$23
+	.word	DIT2
+	.byte	11	;add text
+	.byte	$10,$37
+	.word	DIT3
+	.byte	18	;user icon
+	.byte	$0f,$2e
+	.word	DlgIcon
+	.byte	11	;add text
+	.byte	$5f,$37
+	.word	DlgR1
+	.byte	13	;GetString
+	.byte	$5f	;XOffset
+	.byte	$1e	;YOffset
+	.byte	A9	;gives r# to contain pntr to text buffer. 5-10
+	.byte	8	;maximum # of chars to accept.
+	.byte	0	;end of defintion
+DIT1:	.byte	$18,"Dialog input details:",27,0
+DIT2:	.byte	$18,"Buffer name:",27,0
+DIT3:	.byte	$18,"Buffer size:",27,0
+DlgIcon:	.word	DlgIpic	;graphic location
+	.word	0	;leave this at 0
+	.byte	6	;width, set below
+	.byte	16	;height, set below
+	.word	DlgRButt	;location of action routine
+DlgIpic:
+<img src="00465.png" />DlgRButt:	cwi	$3a,#208	; check mousexpos
+	blt	10$
+	dec	Mod3ISZ
+	bne	DlgRtine
+10$:	inc	Mod3ISZ
+DlgRtine:	ldw	A2,#DlgR1+2
+	lda	Mod3ISZ
+	jsr	HexB	; make the number
+	lda	#0
+	jsr	SetPattern	; clear it first
+	ldw	R3,#64+94
+	ldw	R4,#64+116
+	ldb	R2H,#32+58
+	ldb	R2L,#32+42
+	jsr	Rectangle
+	ldw	R0,#DlgR1	; now redisplay the number
+	ldb	R1H,#32+55
+	ldw	R11,#64+95
+	jmp	PutString
+DlgR1:	.byte	27,"$  ",27,0
+
+VarDlg:	.byte	$80 | $01
+	.byte	11	;add text
+	.byte	$0a,$0f
+	.word	VD1
+	.byte	13	;GetString
+	.byte	$16	;XOffset
+	.byte	$27	;YOffset
+	.byte	A9	;gives r# to contain pntr to text buffer. 5-10
+	.byte	8	;maximum # of chars to accept.
+	.byte	$01,$02,$47	;OK icon
+	.byte	$02,$10,$47	;Cancel icon
+	.byte	0	;end of defintion
+VD1:	.byte	$18,"Enter variable name:",27,0
+
+SysBoxD:	.byte	$00 | 01	;user position
+	.byte	$1e	;top
+	.byte	$a8	;bottom
+	.word	$04f	;left
+	.word	$0e4	;right
+	.byte	$01,$02,$10	;OK icon
+	.byte	$02,$02,$23	;Cancel icon
+	.byte	$03,$02,$39	;Yes icon
+	.byte	$04,$0a,$10	;No icon
+	.byte	$05,$0a,$23	;OPEN icon
+	.byte	$06,$0a,$39	;DISK icon
+	.byte	11	;add text
+	.byte	$11,$0b
+	.word	SysBoxT1
+	.byte	18	;user icon
+	.byte	$02,$76
+	.word	QuiCon
+	.byte	11	;add text
+	.byte	$40,$81
+	.word	SysBoxT2
+	.byte	0	;end of defintion
+SysBoxT1:	.byte	$18,"Select a system icon:",27,0
+SysBoxT2:	.byte	$18,"this operation.",27,0
+
+QuiCon:
+	.word	QuiBm	;graphic location
+	.word	0	;leave this at 0
+	.byte	QW1	;width, set below
+	.byte	QH1	;height, set below
+	.word	QuiDo	;location of action routine
+QuiBm:
+<img src="00464.png" />	QW1	=picW
+	QH1	=picH
+QuiDo:	ldb	sysDBData,#20
+	jmp	RstrFrmDialog
+
+NoMem:	ldw	A2,#NMTxt0
+	jsr	CNCLBox
+	rts
+NMTxt0:	.byte	$18,"Not enough memory.",0
+
+UserMode:	jsr	MouseUp	; restart the mouse
+	jsr	ReDoMenu	; restore the menu (if necessary)
+	jsr	ReClick
+	jsr	Crsr3On	; restore any blinking things
+	jmp	ReTool
+
+BmapRAdj:	cbi	Tool,#6	; send tool, A2 to item
+	bne	10$
+	rts		; only bitmaps don't do this
+10$:	ldy	#4
+	lda	(A2),y
+	sub	DlgByts
+	sta	(A2),y	; take a little off the top
+	iny
+	lda	(A2),y
+	sub	DlgDims+2
+	sta	(A2),y
+	rts
+
+Srch4nCt:	sta	R0L
+	ldb	Temp,#0	; this is the total found
+	ldw	A0,#DataStart	; send in R0L/CD and R0H/PATT
+10$:	cpw	A0,EndOData
+	blt	12$
+11$:	ldx	Temp
+	rts
+12$:	ldy	#0
+	lda	(A0),y
+	cmp	R0L
+	bne	13$
+	inc	Temp	; increment number found
+13$:	jsr	NxtItem
+	bra	10$
+
+.ramsect
+SysButt2:	.block	3
+ArowTyp:	.block	1
+</pre></body></html>

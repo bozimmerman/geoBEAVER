@@ -1,0 +1,14 @@
+geoBEAVER (C)1998-2019 Bo Zimmerman
+Please read the LICENSE file for license information
+Please read the NOTICE file for credits information
+Home Page: http://www.zimmers.net/geos/
+
+geoBEAVER is an application to assist GEOS programmers who use any of the geoWrite-based assembly packages (like geoProgrammer or Concept) in the development of screens, menus, and dialog boxes.  It does this by providing a development environment in which screens and menus can be visually laid out and tweaked.  When the design is completed, the design can be exported into geoWrite source code and compiled into your applications.
+
+Instructions for using geoBEAVER can be read online at https://github.com/bozimmerman/geoBEAVER/tree/master/src-html/geoBEAVERDocs.html . The instructions are also in geoWrite format in the src-geowrite directory.
+
+Building:
+geoBEAVER was built using Concept for Wheels 64.  It might also build using geoProgrammer, but hasn't been tested.  In addition to the provided source, you'll require several components and libraries from the geoModules project:
+https://github.com/bozimmerman/geoModules
+
+

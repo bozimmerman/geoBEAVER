@@ -1,0 +1,692 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;******************************
+;*  S/geoBExportD
+;*  Dialog Box generation
+;******************************
+
+.if 	Pass1
+.noeqin
+.noglbl
+.include	GEOSequates
+		LineNum = $8879
+.eqin
+.glbl
+.endif
+
+	.psect
+
+ExDlg:	lda	ExSel
+	cmp	#2
+	beq	11$	; see if this was selected
+	cmp	#3
+	beq	11$
+99$:	ldx	#0
+10$:	rts
+11$:	ldw	A2,#CTxt4	; start the write
+	jsr	WkBox
+	lda	#0
+	sta	DlgTNum
+	sta	DlgUNum
+	sta	DlgRFlag
+	ldb	LastPatt,#$ff	; load an invalid pattern
+	ldw	A1,#DataStart
+	lda	#51	; first look for dialog box code
+	jsr	LookinFor
+	beq	99$	; if nothing found, just exit
+	jsr	DlgDCall	; first setup dialog box routine
+	bne	10$
+	jsr	DlgDBox	; then put the actual dialog data
+	bne	10$
+	lda	DlgTNum	; any stray strings?
+	beq	12$
+	jsr	DlgTStr	; then put any stray strings
+	bne	10$
+12$:	lda	DlgRFlag	; any need for graphics routine?
+	beq	13$
+	jsr	DlgGRtn	; then put bitmaps and graphics rtine
+	bne	10$
+13$:	lda	DlgUNum	; any user clickboxes?
+	beq	14$
+	jsr	DlgURtn	; send out the user clickbox routines
+	bne	10$
+14$:	jmp	GWPage	; close this last dialog page
+
+DlgDCall:	jsr	i_PutWString	; put routine name
+	.word	Dlg01
+	beq	10$
+98$:	rts	
+10$:	ldw	A1,#DataStart
+	lda	#56	; look for a file box
+	jsr	LookinFor
+	beq	11$
+	jsr	i_PutWString	; put lda for file type
+	.word	Dlg02
+	bne	98$
+	ldy	#10
+	lda	(A1),y	; get the file type
+	jsr	PutHexB
+	jsr	i_PutWString	; put end of line
+	.word	Gen02
+	bne	98$
+	jsr	i_PutWString	; put sta for file type
+	.word	Dlg03	
+	bne	98$
+	jsr	i_PutWString	; put class name... all of it!!
+	.word	Dlg04
+	bne	98$
+	inc	DlgTNum	; so we know text taken by class
+11$:	ldw	A1,#DataStart
+	lda	#54	; look for a dialog input
+	jsr	LookinFor
+	beq	12$
+	jsr	i_PutWString	; put lsb lda
+	.word	Dlg26
+	bne	99$
+	mvw	A1,A2
+	avw	#11,A2
+	jsr	PutWString	; now the buffer name
+	jsr	i_PutWString	; put EOL
+	.word	Dlg27
+	bne	99$
+	jsr	i_PutWString	; put lsb sta
+	.word	Dlg29
+	bne	99$
+	jsr	i_PutWString	; put msb lda
+	.word	Dlg28
+	bne	99$
+	mvw	A1,A2
+	avw	#11,A2
+	jsr	PutWString	; now the buffer name
+	jsr	i_PutWString	; put EOL
+	.word	Dlg27
+	bne	99$
+	jsr	i_PutWString	; put msb sta
+	.word	Dlg30
+	bne	99$
+12$:	jsr	i_PutWString	; put entire call to dodialog box
+	.word	Dlg05
+99$:	rts		; all done!
+	
+
+
+DlgDBox:	ldw	A1,#DataStart
+	lda	#51	; look for the dialog def
+	jsr	LookinFor
+	jsr	i_PutWString	; put data identifier
+	.word	Dlg06
+	bne	99$
+	jsr	DlgBSiZ	; put dialog box siZe information
+	bne	99$
+10$:	ldw	A0,#DataStart
+11$:	cpw	A0,EndOData	; now loop through contents
+	beq	12$
+	ldy	#0
+	lda	(A0),y
+	sta	DlgCode
+	jsr	DlgSysB	; these are system buttons
+	bne	99$
+	jsr	DlgTxt	; this is text
+	bne	99$
+	jsr	DlgInpt	; this is input
+	bne	99$
+	jsr	DlgFBox	; these are file boxes
+	bne	99$
+	jsr	DlgVTxt	; this is variable text
+	bne	99$
+	jsr	DlgUsrB	; this is user defined clickboxes
+	bne	99$
+	jsr	DlgAGfx	; any miscellaneous graphics
+	bne	99$
+	jsr	NxtItem
+	bra	11$
+12$:	jsr	DlgAChk	; any extraneous graphics
+	bne	99$
+	ldw	A1,#DataStart
+	lda	#51	; look for the dialog def
+	jsr	LookinFor
+	jsr	DlgBRest	; other codes for dialog boxes
+	bne	99$		
+	jsr	i_PutWString	; put end of table
+	.word	Dlg09
+	bne	99$
+99$:	rts
+
+DlgBSiZ:	jsr	i_PutWString	; put first .byte
+	.word	Gen01
+	bne	99$
+	ldy	#1
+	lda	(A1),y	; get the shadow pattern
+	sta	Temp
+	ldy	#4
+10$	lda	(A1),y	; check dialog box siZe
+	cmp	DlgBSiZt-4,y
+	bne	12$	; any descrepency is a charge
+	iny
+	cpy	#10
+	blt	10$	; no special siZe, so skip flag set
+11$:	lda	#$80
+	ora	Temp	; set the special siZe flag
+	sta	Temp
+12$:	lda	Temp
+	jsr	PutHexB	; put the .byte
+	jsr	i_PutWString	; put text description
+	.word	Dlg07
+	bne	99$
+	lda	Temp
+	and	#$80	; any special siZing?
+	beq	13$
+	ldx	#0
+99$:	rts
+13$:	jsr	DlgFSiZ
+	bne	99$
+	jsr	i_PutWString	; put siZe comment
+	.word	Dlg08
+	bne	99$	
+	rts	
+DlgBSiZt:	.byte	64,0,32,255,0,127
+DlgFSiZ:	jsr	i_PutWString	; put .byte
+	.word	Gen01
+	bne	99$	
+	ldy	#6
+	lda	(A1),y
+	jsr	PutHexBc	; top
+	bne	99$
+	ldy	#9
+	lda	(A1),y
+	jsr	PutHexBc	; bottom
+	bne	99$
+	ldy	#4
+	lda	(A1),y
+	jsr	PutHexBc	; startx lsb
+	bne	99$
+	ldy	#5
+	lda	(A1),y
+	jsr	PutHexBc	; startx msb
+	bne	99$
+	ldy	#7
+	lda	(A1),y
+	jsr	PutHexBc	; endx lsb
+	bne	99$
+	ldy	#8
+	lda	(A1),y
+	jsr	PutHexB	; endx msb
+	bne	99$
+99$:	rts
+
+DlgSysB:	cbi	DlgCode,#52
+	beq	10$
+	ldx	#0
+	rts
+10$:	jsr	i_PutWString	; put first .byte
+	.word	Gen01
+	bne	99$
+	ldy	#1
+	lda	(A0),y
+	jsr	PutHexBc	; put the button type code
+	bne	99$
+	jsr	DlgRBSiZ	; the put dimensions
+	bne	99$
+	ldy	#1
+	lda	(A0),y	; now find correct comment
+	asl	a
+	tay
+	lda	SysBTab,y	; grabbed from table
+	sta	A2L
+	iny
+	lda	SysBTab,y	; and put in A2
+	sta	A2H
+	jsr	PutWString	; for this routine
+99$:	rts
+SysBTab:	.word	$ffff
+	.word	Dlg14,Dlg15,Dlg16,Dlg17,Dlg18,Dlg19,Dlg14,Dlg14
+DlgRBSiZ:	ldy	#4
+	lda	(A0),y
+	add	#2	; this is an offset PROBLEM!!!!!
+	jsr	PutHexBc
+	bne	99$
+	ldy	#5
+	lda	(A0),y
+	jsr	PutHexB
+99$:	rts
+
+DlgTxt:	cbi	DlgCode,#53
+	beq	10$
+	ldx	#0
+	rts
+10$:	jsr	i_PutWString	; put text definition
+	.word	Dlg20
+	bne	99$
+	jsr	DlgRTSiZ	; put location offsets
+	bne	99$
+	jsr	i_PutWString	; put comment for text def
+	.word	Dlg21
+	bne	99$
+	jsr	i_PutWString	; put text pointer
+	.word	Dlg22
+	bne	99$
+	lda	DlgTNum
+	jsr	PutHexBn
+	bne	99$
+	inc	DlgTNum
+	jsr	i_PutWString	; put EOL
+	.word	Gen02
+99$:	rts
+DlgRTSiZ:	ldy	#4
+	lda	(A0),y	; the x coord is easy
+	jsr	PutHexBc
+	bne	99$
+	ldy	#0
+	lda	(A0),y
+	cmp	#53
+	beq	10$
+	ldy	#6
+	lda	(A0),y	; this is for input and filebox
+	bra	11$
+10$:	ldy	#9	; the y for normal text is not
+	lda	(A0),y
+	sub	#2	; a little adjustment
+11$:	jsr	PutHexB
+99$:	rts
+
+DlgInpt:	cbi	DlgCode,#54
+	beq	10$
+	ldx	#0
+	rts
+10$:	jsr	i_PutWString	; put input definition
+	.word	Dlg23
+	bne	99$
+	jsr	DlgRTSiZ	; put location offsets
+	bne	99$
+	jsr	i_PutWString	; put comment for text def
+	.word	Dlg24
+	bne	99$
+	ldy	#10
+	lda	(A0),y
+	jsr	PutHexB
+	bne	99$
+	jsr	i_PutWString	; put EOL
+	.word	Dlg25
+99$:	rts
+
+
+DlgFBox:	cbi	DlgCode,#56
+	beq	10$
+	ldx	#0
+	rts
+10$:	jsr	i_PutWString	; put FileBox definition
+	.word	Dlg31
+	bne	99$
+	jsr	DlgRTSiZ	; put location offsets
+	bne	99$
+	jsr	i_PutWString	; put comment for FileBox def
+	.word	Dlg32
+99$:	rts
+
+DlgVTxt:	cbi	DlgCode,#58
+	beq	10$
+	ldx	#0
+	rts
+10$:	jsr	i_PutWString	; put vtext definition
+	.word	Dlg20
+	bne	99$
+	jsr	DlgRTSiZ	; put location offsets
+	bne	99$
+	jsr	i_PutWString	; put comment for vtext def
+	.word	Dlg33
+	bne	99$
+	jsr	i_PutWString	; put .word for vtext pointer
+	.word	Gen03
+	bne	99$
+	mvw	A0,A2
+	avw	#11,A2	; put variable text name
+	jsr	PutWString
+	bne	99$
+	jsr	i_PutWString	; put EOL
+	.word	Gen02
+99$:	rts
+
+DlgUsrB:	cbi	DlgCode,#59
+	beq	10$
+	ldx	#0
+	rts
+10$:	jsr	i_PutWString	; put user clickbox definition
+	.word	Dlg34
+	bne	99$
+	jsr	DlgRBSiZ	; the put dimensions
+	bne	99$
+	jsr	i_PutWString	; put user clickbox comment
+	.word	Dlg35
+	bne	99$
+	jsr	i_PutWString	; put .byte
+	.word	Dlg36
+	bne	99$
+	lda	DlgUNum
+	jsr	PutHexBn	; put user clickbox number
+	bne	99$
+	inc	DlgUNum
+	jsr	i_PutWString	; put EOL
+	.word	Gen02
+99$:	rts
+
+DlgAGfx:
+	cbi	DlgCode,#60
+	blt	10$
+	cmp	#64
+	blt	12$
+10$:	ldx	#0
+	rts
+12$:	ldb	DlgRFlag,#$ff
+	ldx	#0
+	rts
+DlgAChk:	lda	DlgRFlag	; no need for another...
+	bne	10$
+	ldx	#0
+	rts
+10$:	jsr	i_PutWString	; put external graphics routine
+	.word	Dlg10
+	rts
+
+DlgBRest:	ldy	#10
+	lda	(A1),y	; check for autoclose flag
+	beq	10$
+	jsr	i_PutWString	; put auto close on click
+	.word	Dlg11
+	bne	99$
+10$:	ldy	#11
+	lda	(A1),y
+	beq	11$
+	jsr	i_PutWString	; put othergraphics start
+	.word	Dlg13
+	bne	99$
+	mvw	A1,A2
+	avw	#11,A2
+	jsr	PutWString
+	jsr	i_PutWString	; put EOL
+	.word Gen02
+	bne	99$
+11$:	mvw	A1,A2
+	avw	#10,A2
+12$:	inw	A2
+	ldy	#0
+	lda	(A2),y	; look for otherpressvec
+	bne	12$	; by looping for end of ext graphics
+	inw	A2
+	lda	(A2),y	; then check otherpressvec routine
+	bne	14$
+99$:	rts
+14$:	mvw	A2,Temp	; found, so save location
+	jsr	i_PutWString	; put otherpressvec start
+	.word	Dlg12
+	bne	99$
+	mvw	Temp,A2	; now put routine name
+	jsr	PutWString
+	jsr	i_PutWString	; put EOL
+	.word Gen02
+	bne	99$
+	rts
+
+DlgTStr:	ldb	DlgTNum,#0	; reset our counter
+	ldw	A1,#DataStart
+	lda	#56
+	jsr	LookinFor
+	beq	10$
+	jsr	DlgTThis
+	bne	99$
+10$:	ldw	A1,#DataStart
+	lda	#53	; set initial text look for
+	jsr	LookinFor
+	bne	11$
+	ldx	#0	; if none found, just leave
+	rts
+11$:	jsr	DlgTThis	; output the found one
+	bne	99$
+	jsr	KeepLookin
+	bne	11$	; keep doing this until done
+	ldx	#0
+99$:	rts	
+
+
+DlgTThis:	jsr	i_PutWString	; put text identifier
+	.word	Dlg37
+	beq	10$
+98$:	rts
+10$:	lda	DlgTNum
+	jsr	PutHexBn	; text id number
+	inc	DlgTNum
+	jsr	i_PutWString	; put text identifier
+	.word	Dlg38
+	bne	98$
+	ldy	#1
+	lda	(A1),y
+	sta	IPatt
+	jsr	PutTPatt
+	bne	98$
+	jsr	i_PutWByte	; put the open quote
+	.byte	34
+	bne	98$
+	mvw	A1,A2
+	ldy	#0
+	lda	(A1),y	; are we dealing with a FileBox?
+	cmp	#56
+	bne	15$
+	avw	#11,A2
+	jsr	PutWString	; string in a different place
+	bne	99$
+	jsr	i_PutWString	; put end quote and end of line
+	.word	Gen06
+	rts
+15$:	avw	#10,A2
+	jsr	PutWString
+	bne	99$
+	jsr	i_PutWString	; put end quote and end line
+	.word	Dlg49
+99$:	rts
+
+DlgURtn:	ldb	DlgUNum,#0	; reset our counter
+	ldw	A1,#DataStart
+	lda	#59
+	jsr	LookinFor	; find a user clickbox
+	bne	10$
+	ldx	#0	; not found, so happy exit
+	rts
+10$:	jsr	DlgUThis	; found one, send it out
+	bne	99$
+	inc	DlgUNum
+	jsr	KeepLookin	; look for another
+	bne	10$
+	ldx	#0
+99$:	rts
+DlgUThis:	jsr	i_PutWString	; put user clickbox identifier
+	.word	Dlg39
+	beq	10$
+98$:	rts
+10$:	lda	DlgUNum
+	jsr	PutHexBn	; user click ROUTINE box number
+	jsr	i_PutWString	; put graphics pointer
+	.word	Dlg40
+	bne	98$
+	mvw	A1,PSAdd	; add the pic pointer
+	jsr	PStackAdd	; and get the pic number
+	jsr	PutHexBn	; user clickbox  picture number
+	bne	98$
+	jsr	i_PutWString	; end pic, and start coords
+	.word	Dlg41
+	bne	98$
+	ldy	#6
+	lda	(A1),y
+	jsr	PutHexBc
+	bne	98$	; put width
+	ldy	#7
+	lda	(A1),y
+	jsr	PutHexB
+	bne	98$	; put height
+	jsr	i_PutWString	; put comment and routine setup
+	.word	Dlg43
+	bne	98$
+	lda	DlgUNum
+	jsr	PutHexBn	; routine handler number
+	bne	99$
+	jsr	i_PutWString	; End EOL
+	.word	Gen02
+	bne	99$
+	jsr	i_PutWString	; now put the handler itself!
+	.word	Dlg44
+	bne	99$
+	lda	DlgUNum
+	jsr	PutHexBn	; handler num
+	bne	99$
+	jsr	i_PutWString	; now get down to the lda #$
+	.word	Dlg45
+	bne	99$
+	lda	DlgUNum
+	add	#$14	; the adjustment for user clickboxes
+	jsr	PutHexB	; for sysDBData
+	bne	99$
+	jsr	i_PutWString	; done with handler!
+	.word	Dlg46
+99$:	rts	
+
+DlgGRtn:	ldw	A1,#DataStart	; prepare to cycle through entries
+	ldb	DataMode,#0	; not in any mode
+	jsr	i_PutWString	; start with something good
+	.word	Dlg47
+	bne	99$
+11$:	cpw	A1,EndOData
+	blt	12$
+	ldx	#0	; just in case of a non-disk exit
+	lda	DataMode
+	beq	98$	; any tables to close, close now...
+	jsr	ScnGCMod
+	bne	99$
+98$:	jsr	i_PutWString	; end with an rts
+	.word	Dlg48
+99$:	rts		; this is the way we exit...
+12$:	ldy	#1
+	lda	(A1),y	; snag the pattern first
+	sta	IPatt
+	dey		; get the next data code 
+	lda	(A1),y
+	cmp	#50	; 0-20 are screen codes
+	bge	14$
+13$:	ldy	#2	; go onto the next thing
+	lda	(A1),y
+	sta	Temp	; so get the increment bytes
+	iny
+	lda	(A1),y
+	sta	Temp+1	; and the high increment byte
+	adw	Temp,A1	; add it in!
+	bra	11$	; and go up to check the next one
+14$:	sub	#50
+	tay		; put the code in .y
+	lda	DModTab,y
+	sta	ThisCode	; store the code for later
+	cmp	#$ff
+	beq	13$	; nothing adjustable, so move on
+	tay		; put the code in .y
+	lda	ModeTab,y	; see if we are changing modes
+	cmp	#3	; not doing clickboxes yet
+	beq	13$	; so go to next thing...
+	sta	NewMode	; save new mode temporarily
+	lda	DataMode
+	beq	15$	; if in a non-mode, skip to open
+	cmp	NewMode	; but if the same, just continue
+	beq	16$	; just a continue, so go down
+	jsr	ScnGCMod	; close the current mode
+	bne	18$
+15$:	mvb	NewMode,DataMode ; we are now in this mode
+	jsr	ScnGOMod
+	bne	18$
+16$:	cbi	DataMode,#1	; one is a graphicsstring line
+	bne	17$
+	jsr	ScnGPut
+	beq	13$	; done, so go to next thing
+	rts
+17$:	cbi	DataMode,#2
+	bne	13$	; only doing gstrings and bitmaps..
+	jsr	ScnGBmp
+	beq	13$
+18$:	rts
+DModTab:	.byte	255,255,255,255,255,255,255,255,255,255,1 ; 50-60
+	.byte	3,4,6,255,255,255,255,255,255,255; 61-70
+
+;********* dialog box strings ***********
+Dlg01:	.byte	"DlgBox:",13,0
+Dlg02:	.byte	9,"lda",9,"#",0
+Dlg03:	.byte	9,"sta",9,"$10",9,"; set file type for FileBox",13,0
+Dlg04:	.byte	9,"lda",9,"#[(DlgT00)",13
+	.byte	9,"sta",9,"$16",9,"; set lsb for class name",13
+	.byte	9,"lda",9,"#](DlgT00)",13
+	.byte	9,"sta",9,"$17",9,"; set msb for class name",13,0
+Dlg05:	.byte	9,"lda",9,"#[(DlgDat)",13
+	.byte	9,"sta",9,"$02",9,"; set lsb for dialog data",13
+	.byte	9,"lda",9,"#](DlgDat)",13
+	.byte	9,"sta",9,"$03",9,"; set msb for dialog data",13
+	.byte	9,"jmp",9,"$c256",9,"; call DoDlgBox and leave!",13,0
+Dlg06:	.byte	"DlgDat:",0
+Dlg07:	.byte	9,"; size flag, and shadow pattern",13,0
+Dlg08:	.byte	9,"; dialog box dimensions",13,0
+Dlg09:	.byte	9,".byte",9,"$00",9,"; end of table",13,0
+Dlg10:	.byte	9,".byte",9,"$13",9,"; all external dialog gfx",13
+	.byte	9,".word DlgGfx",13,0
+Dlg11:	.byte	9,".byte",9,"$14",9,"; set auto-close on click",13,0
+Dlg12:	.byte	9,".byte",9,"$11",9,"; set otherPressVec",13
+	.byte	9,".word ",0
+Dlg13:	.byte	9,".byte",9,"$13",9,"; set external routine",13
+	.byte	9,".word ",0
+Dlg14:	.byte	9,"; OK button",13,0
+Dlg15:	.byte	9,"; CANCEL button",13,0
+Dlg16:	.byte	9,"; YES button",13,0
+Dlg17:	.byte	9,"; NO button",13,0
+Dlg18:	.byte	9,"; OPEN button",13,0
+Dlg19:	.byte	9,"; DISK button",13,0
+Dlg20:	.byte	9,".byte",9,"$0b,",0
+Dlg21:	.byte	9,"; static text",13,0
+Dlg22:	.byte	9,".word DlgT",0
+Dlg23:	.byte	9,".byte",9,"$0d,",0
+Dlg24:	.byte	9,"; input text",13,9,".byte",9,"$70,",0
+Dlg25:	.byte	9,"; buffer vec, max bytes",13,0
+Dlg26:	.byte	9,"lda",9,"#[(",0
+Dlg27:	.byte	")",13,0
+Dlg28:	.byte	9,"lda",9,"#](",0
+Dlg29:	.byte	9,"sta",9,"$70",9,"; A2L, input buf lsb",13,0
+Dlg30:	.byte	9,"sta",9,"$71",9,"; A2H input buf msb",13,0
+Dlg31:	.byte	9,".byte",9,"$10,",0
+Dlg32:	.byte	9,"; FileBox",13,0
+Dlg33:	.byte	9,"; variable text",13,0
+Dlg34:	.byte	9,".byte",9,"$12,",0
+Dlg35:	.byte	9,"; user clickbox",13,0
+Dlg36:	.byte	9,".word DlgU",0
+Dlg37:	.byte	"DlgT",0
+Dlg38:	.byte	":",9,".byte",9,0
+Dlg39:	.byte	"DlgU",0
+Dlg40:	.byte	":",9,".word Bitmap",0
+Dlg41:	.byte	9,"; pointer to graphics data",13
+	.byte	9,".word $ffff",13
+Dlg42:	.byte	9,".byte",9,0
+Dlg43:	.byte	9,"; pic width and height",13,9,".word "
+Dlg44:	.byte	"DlgR",0
+Dlg45:	.byte	":",9,"lda",9,"#",0
+Dlg46:	.byte	9,"; sysDBData code",13
+	.byte	9,"sta",9,"$851d",13
+	.byte	9,"jmp",9,"$c2bf",9,"; RstrFrmDialogue",13,0
+Dlg47:	.byte	"DlgGfx:",0
+Dlg48:	.byte	9,"rts",13,0
+Dlg49:	.byte	34,",27,0",13,0
+
+; the GENS from other code piece
+;Gen01:	.byte	9,".byte",9,0
+;Gen02:	.byte	13,0	; the correct way to do a CR
+;Gen03:	.byte	9,".word ",0
+;Gen04:	.byte	":",13,0
+;Gen05:	.byte	":",9,".byte",9,"27,",34,0
+;Gen06:	.byte	34,",0",13,0
+;Gen07:	.byte	":",0
+
+
+.ramsect
+
+DlgTNum:	.block	1	; dialog string counter for names
+DlgUNum:	.block	1	; # of user clickboxes 4 rtine names
+DlgRFlag:	.block	1	; whether a graphics routine needed
+DlgCode:	.block	1	; the current code being looked at
+</pre></body></html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;*****************
+;*  Main Linker File
+;*****************
+
+.output	geoBeaver
+.header	H/geoBeaver.rel
+
+.vlir
+
+.psect	$0400	; beginning of main
+.ramsect	$1300	; must mark end of main
+
+S/geoBeaver.rel
+APIcommon.rel
+MODdaAB.rel
+MODferr.rel
+MODclicks.rel
+MODscrn.rel
+MODvPrg.rel
+
+.mod	1
+.psect	VPRGbase	; end of main ramsect
+
+S/geoBOpen.rel
+MODfbox.rel
+
+.mod	2
+.psect	VPRGbase	; end of main ramsect
+S/geoBMode1.rel
+S/geoBMode1b.rel
+
+.mod	3
+.psect	VPRGbase	; end of main ramsect
+S/geoBExport.rel
+S/geoBExporS.rel
+S/geoBExporM.rel
+S/geoBExporD.rel
+MODgeoWx.rel
+
+.mod	4
+.psect	VPRGbase	; end of main ramsect
+S/geoBMode2.rel
+
+.mod	5
+.psect	VPRGbase	; end of main ramsect
+S/geoBMode3.rel
+S/geoBMode3b.rel
+S/geoBMode3c.rel
+</pre></body></html>

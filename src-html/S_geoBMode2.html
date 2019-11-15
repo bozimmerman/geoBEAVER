@@ -1,0 +1,1189 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;******************************
+;*  S/geoBMode2
+;*
+;******************************
+
+.if 	Pass1
+.noeqin
+.noglbl
+.include	GEOSequates
+.eqin
+.glbl
+.endif
+
+	.psect
+	jmp	Main2	; VPRGbase + 0
+	jmp	Mod2Click	; VPRGbase + 3
+	jmp	Mod2Recv	; VPRGbase + 6
+	jmp	Mod2Drag	; VPRGbase + 9
+	jmp	Mod2Press	; VPRGbase + 12
+	jmp	ReMain2	; VPRGbase + 15
+	.word	DelDone
+	.word	SelPapy
+
+Main2:	ldw	SelItem,#0	; pointer to selected node
+	ldw	NextHere,#0	; pointer to add point
+	ldb	SelLevel,#20	; menu level naught is default
+	ldb	SelBox,#0	; selbox > 0 means drag is on
+	ldb	DragFlag,#0	; everyone must use it
+ReMain2:
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	jsr	$c1a8	; i_GraphicsString -to clear screen
+	.byte	$05,$00	; NEWPATTERN is blank
+	.byte	$01,$00,$00,$00	; MOVEPENTO top left
+	.byte	$03,$3f,$01,$c8	; RECTANGLETO whole screen
+	.byte	$00	; end of clrscn table
+	jsr	$c1ab	; i_BitmapUp
+	.word	EdtCon
+	.byte	$01,$3d,$06,$10
+	ldb	R2L,#$3d	; click in edit box?
+	ldb	R2H,#$4d
+	ldw	R3,#$0008	; set the edit box as a click
+	ldw	R4,#$0038
+	jsr	i_WSetClick
+	.word	0	; no routine
+	.byte	1	; 1 is now the edit box
+	jsr	$c1ab	; i_BitmapUp
+	.word	DelCon
+	.byte	$01,$1e,$06,$10
+	ldb	R2L,#$1e	; click in delete box?
+	ldb	R2H,#$2e
+	ldw	R3,#$0008	; set the delete box as a click
+	ldw	R4,#$0038
+	jsr	i_WSetClick
+	.word	0	; no routine
+	.byte	3	; 3 is now the delete box
+	lda	MenuMode	; has menu been initialiZed?
+	bne	10$
+	inc	MenuMode	; no, so initialiZe it
+	ldw	R0,#MyMenu
+	lda	#0
+	jsr	DoMenu	; set up the pull-down windows
+	bra	11$	; and skip a redo
+10$:	jsr	ReDoMenu
+11$:	mvb	mouseOn,MenuSave ; save menu checking
+	jsr	DrawTop	; unwrapping is easy...
+	rts
+
+CanChk:	ldw	Temp,#DataEndP
+	sbw	EndOData,Temp
+	cwi	Temp,#30
+	blt	10$
+	ldx	#0
+	rts
+10$:	ldw	A2,#CanTxt
+	jsr	CNCLBox
+	ldx	#$ff
+	rts
+CanTxt:	.byte	$18,"Not enough memory.",0
+
+
+DrawTop:	; ** this is easy.. just one level, please, from SelItem
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	jsr	FstItem	; start from the top
+11$:	cpw	A0,EndOData
+	beq	13$
+	ldy	#0
+	lda	(A0),y	; grab the code, please
+	beq	13$	; a Zero is universal end
+	cmp	#21	; now compare it to our look4
+	beq	14$	; either we find one
+	blt	13$	; or the end end (look4 > x > 20)
+12$:	jsr	NxtItem	; always returns a menu coder
+	bra	11$
+13$:	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	jsr	PutAPlus
+	rts
+14$:	sec
+	jsr	DrMenuItm
+	bra	12$
+
+
+
+DrMenuItm:	php		; send clc for no clear
+	mvw	A0,SaveReg	; save the item pointer
+	mvw	rightMargin,SaveMgn ; save the screen margin
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	plp
+	bcc	10$
+	lda	#0
+	jsr	SetPattern	; clear out the pattern
+	jsr	LoadR2
+	jsr	Rectangle	; blank it
+10$:	jsr	LoadR2
+	lda	#$ff
+	jsr	FrameRectangle	; and draw the box
+	; dotted lines are tough....
+	jsr	LoadR2	; get them again for text
+	mvw	R3,R11	; assume left is perfect
+	avw	#4,R11	; but we know its not
+	mvw	R4,rightMargin	; and limit the text by our box
+	lda	R2H	; get the y pos
+	sec
+	sbc	#5
+	sta	R1H	; and pull back a bit
+	mvw	A0,R0	; get string pointer
+	avw	#10,R0	; by adding 10 to item pointer
+	jsr	PutString	; now pray
+	mvw	SaveMgn,rightMargin ; restore screen margin
+	mvw	SaveReg,A0
+	rts
+
+
+TreeVers:	; send A0 = selected item, go back up tree for parents
+	; put all parent pointers on the stack
+	jsr	PrepS	; prepare the stack
+	cwi	A0,#0
+	bne	10$	; if nothing selected do top level
+	lda	#21
+	sta	Find4Me
+	jsr	FindMyPapy	; this returns DataStart
+	beq	13$	; and without errors, we go on!
+99$:	rts
+10$:	ldy	#0	; get its sellevel code
+	lda	(A0),y
+	sta	Find4Me	; get the level examining
+	inc	Find4Me	; look for kids, if any
+	bra	13$
+11$:	ldy	#0	; get its sellevel code
+	lda	(A0),y
+	sta	Find4Me	; get the level examining
+12$:	lda	Find4Me
+	jsr	FindMyPapy	; get my papypointer
+	beq	13$
+	rts		; none left, so exit!
+13$:	mvw	A0,Temp+8	; save this for next papysearch
+	cpw	A0,EndOData
+	beq	17$	; if at the end, next papy
+	cbi	Find4Me,#21
+	beq	14$	; top level gets no skip priv
+	jsr	NxtItem
+14$:	cpw	A0,EndOData
+	beq	17$	; if at the end, next papy
+	ldy	#0
+	lda	(A0),y	; get the code
+	cmp	Find4Me	; if its one of me, save it
+	blt	17$
+	bne	16$
+15$:	mvw	A0,A5	; found one, so push
+	jsr	PushS
+16$:	jsr	NxtItem	; and keep looking for these
+	bra	14$
+17$:	cbi	Find4Me,#21	; top level is special case
+	bgt	18$	; when it comes up, just stop
+	rts
+18$:	mvw	Temp+8,A0	; time for next papy
+	bra	11$
+
+FindMyPapy:
+	sta	Temp+7	; comes in with A0 and .a=my cod
+	cmp	#20
+	beq	12$	; if already at top, return error
+	dec	Temp+7	; otherwise, set for papys code
+	cmp	#21	; non-level is a special case
+	bne	11$	; but its ok -- read top level
+	jsr	FstItem
+	ldx	#0	; but has set values
+	rts
+11$:	cwi	A0,#DataStart
+	bgt	13$
+12$:	ldx	#$ff	; bne is an error
+	rts		; the top is the end of life itself
+13$:	jsr	PrvItem	; going back one menu code
+	ldy	#0
+	lda	(A0),y	; check this code
+	cmp	Temp+7	; keep looking till its found
+	bne	11$
+	rts
+
+Mod2Click:	cbi	mouseData,#0	; is the button down or up?
+	beq	11$
+	lda	SelBox
+	beq	10$	; releasing on a drag is only
+	jmp	PlusUnDg	; button up on a drag release
+10$:	rts
+11$:	mvb	mouseYPos,ChkPlace
+	mvw	mouseXPos,ChkPlace+1
+	jsr	PlusChk	; click in the plus thing?
+	bne	10$	; eq means no, or continue
+	cwi	SelItem,#0
+	beq	13$
+	jsr	i_ChkClick	; check for the click
+	.byte	3	; see if our delete button is clicked
+	cpx	#0	; was it inside?
+	bne	12$
+	jsr	InvertRectangle
+	jmp	DelSelItem
+12$:	jsr	i_ChkClick	; check for the click
+	.byte	1	; see if our edit box is clicked
+	cpx	#0	; was it inside?
+	bne	13$
+	jsr	InvertRectangle
+	ldb	dblClickCount,#0	; for accounting purposes
+	jmp	EditBox	; get text for selected item
+13$:	mvw	SelItem,A0	; sel A0 = Selected Item
+	jsr	TreeVers	; and find all clickable squares
+14$:	cbi	StackX,#0	; see if anythings on the stack
+	beq	16$
+	jsr	PullS	; there is, so pull a pointer
+	mvw	A5,A0	; save this for selecting
+	jsr	LoadR2
+	jsr	IsMseInRegion
+	cmp	#$00
+	beq	14$	; nope!
+	cpw	A0,SelItem
+	bne	18$	; are we reselecting?
+	lda	dblClickCount	; yes, but are we double-clicking?
+	beq	18$
+	jmp	EditBox
+18$:	ldb	dblClickCount,#50	; reload the doubleclickcounter
+	jsr	SelThisI	; found, so select and exit!
+	jsr	PutAPlus	; put the new plus box
+15$:	rts
+16$:	cwi	SelItem,#0
+	beq	17$
+	jsr	USelThis	; unselect the old thing
+	jsr	ClrBottom	; clear out open windows
+	jsr	PutAPlus	; put the top level plus box
+17$:	rts
+
+
+Mod1AChk:	ldw	A0,#SelItem	; now look in open boxes...
+	ldy	#0
+	lda	(A0),y
+	sta	LastB4	; look only for this, thanks.
+51$:	cwi	A0,#DataStart	; stop at the beginning
+	ble	60$	; if at the end, leave
+	ldy	#0
+	lda	(A0),y
+	cmp	LastB4
+	beq	56$
+	clc
+	adc	#1
+	cmp	LastB4	; is this found one, one below?
+	bne	55$	; no, so keep looking
+	cmp	#20
+	ble	55$	; a 20 means we look too long..
+	sta	LastB4	; put this in the srch code place
+	bra	56$	; and look at it...
+55$:	jsr	PrvItem	; not a level one, so back up..
+	bra	51$
+56$:	jsr	LoadR2
+	jsr	IsMseInRegion
+	cmp	#$00
+	beq	55$	; nope!
+	jsr	SelThisI	; found, so select and exit!
+	lda	#0
+	beq	61$	; eq means selected, so exit
+60$:	lda	#$ff
+61$:	rts
+
+PlusChk:	jsr	i_ChkClick	; free hZ, free vt, add vt
+	.byte	2	; see if our plus is clicked
+	cpx	#0	; was it inside?
+	beq	10$
+	ldx	#0	; eq means continue
+99$:	rts
+10$:	jsr	CanChk	; check memory, or exit
+	bne	99$
+	mvw	rightMargin,WorkTxt+96 ; make a right margin
+	svw	#20,WorkTxt+96
+	mvb	windowBottom,WorkTxt+94 ; make a bottom margin
+	svb	#10,WorkTxt+94
+	cpw	R4,WorkTxt+96	; is the box too far right?
+	bge	99$	; if so, then ignore the click
+	cpb	R2H,WorkTxt+94	; is the box too low?
+	bge	99$	; if so, then ignore the click
+	cwi	SelItem,#0	; now see if drag is warranted
+	beq	13$	; if at top level, it is
+	mvw	SelItem,A0
+	ldy	#0
+	lda	(A0),y	; get selected item's code
+	tax
+11$:	jsr	NxtItem	; get pointer to next
+	cpw	A0,EndOData	; always returns a menu coder
+	beq	13$
+	ldy	#0	; get next item's code
+	txa		; and compare ours to it
+	cmp	(A0),y	; if same as me, or above me
+	bge	13$	; go ahead and drag.
+	ldw	A5,#SelBox
+	jsr	SvDims	; save Plus-Box dimensions
+	jsr	PlusUnDg	; now make an equi-siZe box
+	ldx	#$ff	; non-eq means we're done!
+	rts
+13$:	jsr	PlusClicked
+	ldx	#$ff	; exit from click checking now
+	rts
+
+PlusClicked:
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	lda	#0
+	jsr	SetPattern	; set a clear pattern
+	jsr	i_ChkClick
+	.byte	2	; restore the dimensions
+	jsr	Rectangle	; clear the old plus box out
+	ldy	#0
+	mvw	PlusBox,SelBox	; hor. siZe never an option
+	mvw	PlusBox+2,SelBox+2 ; x start never an option
+	lda	PlusType
+	cmp	#$40	; HORZONTAL
+	bne	50$	; handle the horiZontals first
+	mvw	ChkPlace+1,SelBox+4
+	ldw	A5,#SelBox
+	jsr	LdDims
+	bra	79$
+50$:	mvw	ChkPlace+1,SelBox+4
+	ldw	A5,#SelBox
+	jsr	LdDims
+79$:	ldb	dispBufferOn,#ST_WR_FORE
+	lda	#%10101010
+	sta	DragFlag	; since we are starting a drag
+	jsr	FrameRectangle	; draw the durn thing
+	ldx	#$ff	; exit from click checking now
+	rts
+
+PlusUnDg:	ldw	A5,#SelBox
+	jsr	LdDims	; get the dimensions
+	mvw	R4,Temp
+	sbw	R3,Temp	; if box too small
+	cwi	Temp,#15
+	bgt	10$
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	jsr	PutAPlus	; just abort...
+	ldb	SelBox,#0	; clear out sel mode box
+	sta	DragFlag
+	rts
+10$:	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	lda	#0
+	jsr	SetPattern	; set a clear pattern
+	jsr	Rectangle	; fill in with Zeroes
+	cwi	NextHere,#0
+	beq	99$
+	mvw	NextHere,A0
+	lda	#11	; 4+3+3+1 (Zero term)
+	jsr	GimiRoom
+	mvw	NextHere,A0
+	ldb	WorkTxt,#0	; make a null, please
+	lda	SelLevel
+	clc
+	adc	#1	; undrag always adds sellevel+1
+	jsr	MenuMake	; now we have an entry
+	mvw	NextHere,A0
+	sec
+	jsr	DrMenuItm
+	ldy	#0
+	lda	(A0),y	; is new item first level?
+	cmp	#21	; if not, don't select it.
+	bne	98$
+	jsr	SelThisI	; now do an official select
+98$:	ldb	dispBufferOn,#ST_WR_FORE
+	jsr	PutAPlus	; this is the right time, believe me
+99$:	ldb	SelBox,#0	; clear out sel mode box
+	sta	DragFlag
+	ldy	#0
+	lda	(A0),y	; is new item first level?
+	cmp	#21	; if not, don't select it.
+	beq	PlusUnTop
+	rts
+PlusUnTop:	jmp	GetText
+
+
+GimiRoom:	sta	RoomTmp	; store bytes forward
+	ldb	RoomTmp+1,#0	; *****************
+	cpw	A0,EndOData	; ** should check mem remain!!
+	bge	99$	; if the end, no worries
+	mvw	A0,R1
+	adw	RoomTmp,R1	; find the destination
+	mvw	A0,R0	; and the start
+	mvw	EndOData,R2
+	sbw	A0,R2	; number of bytes to move
+	inw	R2	; just to get the Zero
+	jsr	MoveData	; now we got room!
+99$:	adw	RoomTmp,EndOData
+	ldb	SaveFlag,#1	; set the dirty flag
+	ldx	#0	; return no error!
+	rts
+
+MenuMake:
+	sta	Temp+7	; save for later
+	ldy	#0
+	jsr	MkPut	; stored the code
+11$:	lda	#$00	; MENU_ACTION
+	jsr	MkPut
+	ldw	RoomTmp,#0	; start siZe calc
+	ldx	#$ff
+12$:	inx
+	lda	WorkTxt,x	; find # bytes in the text
+	bne	12$
+	inx
+	stx	RoomTmp	; and use it to calc siZe
+	avw	#10,RoomTmp	; 10 is the constant
+	lda	RoomTmp
+	jsr	MkPut	; got siZe lb
+	lda	RoomTmp+1
+	jsr	MkPut	; got siZe hb
+	ldw	A5,#SelBox
+	mvw	A0,A6
+	avw	#4,A6	; point to box dest point
+	jsr	TabLd
+	ldx	#$ff
+	ldy	#10	; point to text destination
+13$:	inx
+	lda	WorkTxt,x	; keep putting text in
+	jsr	MkPut
+	cmp	#0
+	bne	13$	; keep going till null reached
+	cbi	SelLevel,#21	; now make the type CORRECT
+	blt	14$	; if top level, don't bother....
+	lda	Temp+7	; otherwise, adjust parent
+	jsr	FindMyPapy	; get our parent
+	bne	14$	; and error means bye bye
+	ldy	#1
+	lda	#$80	; VERTICAL
+	sta	(A0),y	; and make it a menu, I said.
+14$:	rts
+MkPut:	sta	(A0),y
+	iny
+	rts
+
+SelThisI:	jsr	USelThis
+10$:	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	mvw	A0,SelItem
+	ldy	#0	; get the code
+	lda	(A0),y
+	sta	SelLevel	; now were cookin
+	cmp	#21
+	bne	11$	; top level is special case
+	ldw	SelPapy,#0
+	beq	12$	; so just clear my papy
+11$:	jsr	FindMyPapy
+	php
+	mvw	A0,SelPapy	; save my papy
+	plp
+	beq	12$
+	jmp	USelThis	; some sort of error, so crash!
+12$:	mvw	SelItem,A0	; restore selectable
+	lda	SelLevel
+	jsr	TreeVers	; now get redisplayables
+14$:	cbi	StackX,#0	; see if anythings on the stack
+	beq	16$
+	jsr	PullS	; there is, so pull a pointer
+	ldy	#0	; before drawing, check it out
+	lda	(A5),y	; 	get its code
+	cmp	#21	; if a top level, don't bother.
+	beq	14$	; because its not necessary
+	mvw	A5,A0	; save this for selecting
+	sec
+	jsr	DrMenuItm	; draw this item
+	bra	14$
+16$:	cbi	SelLevel,#21
+	bne	17$
+	mvw	SelItem,A0
+	sec
+	jsr	DrMenuItm	; just in case
+17$:	mvw	SelItem,A0
+	jsr	LoadR2
+	jsr	InvertRectangle	; invert the puppy
+	rts
+
+
+
+USelThis:	mvw	A0,SaveReg+4	; save the soon selected
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	cwi	SelItem,#0	; don't unselect the nonexistant
+	bne	10$
+	lda	#0
+	jsr	SetPattern	; but there's still the plus
+	jsr	i_ChkClick
+	.byte	2	; get the old plus' box
+	inw	R3	; don't get the left, please
+	jsr	Rectangle
+	rts
+10$:	cbi	SelLevel,#21	; only top levels are manual
+	bgt	11$
+	mvw	SelItem,A0	; now do a real unselect
+	jsr	LoadR2
+	jsr	InvertRectangle	; uninvert the puppy
+11$:	jsr	ClrBottom	; just empty the place
+	ldw	SelItem,#0	; those happy pointers..
+	ldb	SelLevel,#20	; back to basics
+	mvw	SaveReg+4,A0	; restore the soon selected
+	rts
+
+ClrBottom:	; ** this clears the whole bottom, and the sel-flags
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	lda	#0
+	jsr	SetPattern	; clear the bottom area
+	ldb	R2L,#DEFMBOT+1
+	ldb	R2H,#$c7	; this is the top level
+	ldw	R3,#DEFMLFT+16
+	mvw	rightMargin,R4
+	jsr	Rectangle
+	rts
+
+ClrTop:	ldw	R3,#DEFMLFT+16
+ClrTop2:	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	lda	#0
+	jsr	SetPattern	; prepare to clear the rest
+	ldb	R2L,#DEFMTOP
+	ldb	R2H,#DEFMBOT	; this is the top level
+	mvw	rightMargin,R4	; clear ALL of it
+	jmp	Rectangle	; clear and then...
+
+EditBox:	jsr	CanChk	; check memory, or exit
+	bne	99$
+	cpw	SelItem,#0	; was anything selected?
+	bne	10$
+99$:	jsr	i_ChkClick
+	.byte	1
+	jmp	InvertRectangle		; nothing to do
+10$:	mvw	SelItem,A0	; grab ye old selected
+	ldy	#0
+	lda	(A0),y
+	cmp	#21	; is it a HORIZONTAL item?
+	beq	12$
+11$:	jmp	EditOut	; no, so just do normal
+12$:	mvw	SelItem,SaveReg+6; probably a bad idea
+	jsr	USelThis	; this should clear bottom & topiZe
+	jsr	FindMeLast	; this should get last top one
+	mvw	A0,A1	; save the last one
+	mvw	SaveReg+6,A0	; restore the selected one
+	jsr	SelThisI	; reselect this one
+	mvw	A1,A0
+	cwi	A0,#0
+	beq	11$
+	jsr	LoadR2	; get last dimensions
+	mvw	rightMargin,AdjAmt
+	svw	#20,AdjAmt
+	cpw	R4,AdjAmt
+	bgt	11$	; no room, so use whatcha have
+	sbw	R4,AdjAmt	; now have difference
+	cwi	AdjAmt,#50	; arbitrary siZe ***
+	blt	14$	; its smaller, so use less
+	ldw	AdjAmt,#50	; arbitrary siZe ****
+14$:
+Edit2:	jsr	ClrTop	; clear the top bar
+	ldb	AdjTyp,#1	; set for right moving
+	ldb	AdjCod,#21
+	mvw	SelItem,A0
+	jsr	LoadR2	; get this ones dimensions
+	adw	AdjAmt,R4
+	jsr	SaveR2
+	mvw	SelItem,A0
+	jsr	MyBrother	; get my brother
+	bne	15$
+	jsr	CelAdjust	; move all other cells please
+15$:	jsr	DrawTop	; and unwrap all top levels
+EditOut:	lda	dblClickCount	; was this a doubleclicker?
+	bne	10$
+	jsr	i_ChkClick
+	.byte	1
+	jsr	InvertRectangle		; nothing to do
+10$:	jmp	GetText
+
+GetText:	cpw	SelItem,#0
+	bne	10$
+	rts		; nothing to do
+10$:	mvw	SelItem,A0	; grab ye old selected
+	ldy	#9
+11$:	iny		; put the text in WorkText
+	lda	(A0),y
+	sta	WorkTxt-10,y
+	bne	11$
+	jsr	MouseOff	; turn off mouseability
+	sec
+	jsr	DrMenuItm
+12$:	ldy	#9
+	lda	(A0),y	; get the bottom 'y'
+	sta	R1H	; and store it for GetString
+	svb	#11,R1H	; pull up a bit
+	ldy	#4
+	lda	(A0),y	; get the start 'x'
+	sta	R11L
+	iny
+	lda	(A0),y
+	sta	R11H
+	avw	#4,R11	; move right a bit
+	mvw	rightMargin,SaveMgn ; save our rightMargin
+	ldy	#7
+	lda	(A0),y	; get the right 'x'
+	sta	rightMargin
+	iny
+	lda	(A0),y
+	sta	rightMargin+1	; and save it
+	svw	#5,rightMargin	; and move it left a bit
+	ldb	R1L,#0	; no right margin routine
+	ldw	R0,#WorkTxt
+	ldb	R2L,#99	; that should be more than enough
+	ldw	keyVector,#CapDone
+	jmp	GetString	; good luck!
+
+CapDone:	cwi	SelItem,#0	; was anything selected?
+	bne	10$
+	rts
+10$:	jsr	MouseUp	; restore mouse mode
+	mvw	SaveMgn,rightMargin ; restore our rightMargin
+	mvw	SelItem,A0
+	ldy	#2
+	lda	(A0),y	; get the actual length o item
+	sta	Temp+7
+	iny
+	lda	(A0),y
+	sta	Temp+8
+	ldx	#$ff	; see how long the caption is
+11$:	inx
+	lda	WorkTxt,x	; and include the 0
+	bne	11$
+	inx		; add one for the Zero
+	stx	RoomTmp
+	ldb	RoomTmp+1,#0	; get the total length of the new
+	avw	#10,RoomTmp	; now its comparible
+	ldy	#2
+	lda	RoomTmp
+	sta	(A0),y	; save the new length
+	iny
+	lda	RoomTmp+1
+	sta	(A0),y
+	cpw	RoomTmp,Temp+7
+	beq	50$
+	blt	12$	; the new must be greater
+	adw	Temp+7,A0	; now points to next
+	sbw	Temp+7,RoomTmp	; now have the difference!
+	lda	RoomTmp
+	jsr	GimiRoom	; now have expanded bytes
+	bra	50$
+12$:	jsr	CapBack	; the new one is smaller...
+50$:	mvw	SelItem,A0
+	avw	#10,A0
+	ldy	#$ff
+51$:	iny		; finally move the text over
+	lda	WorkTxt,y
+	sta	(A0),y
+	bne	51$	; keep going until null
+	mvw	SelItem,A0
+	sec
+	jsr	DrMenuItm	; redraw the damn thing
+	jsr	EdAdjust	; check for top level chills,SelItem
+	ldb	SaveFlag,#1	; every CR is a dirty one
+	mvw	SelItem,A0	; restore main pointer
+	jsr	SelThisI	; and reselect it please
+	jmp	PutAPlus	; to get new NextHere
+
+CapBack:	mvw	A0,A1	; copy pointer over
+	adw	Temp+7,A0	; get the source address
+	adw	RoomTmp,A1	; get the dest address
+	ldy	#0
+13$:	cpw	A0,EndOData	; the back-copy loop
+	beq	14$
+	ldy	#0
+	lda	(A0),y	; copy back the data
+	sta	(A1),y
+	inw	A0
+	inw	A1
+	bra	13$
+14$:	ldy	#0	; dont forget the last byte
+	lda	(A0),y
+	sta	(A1),y
+	mvw	A1,EndOData	; make the new EndOData
+	jsr	ClrBuf2End	; fill the rest with Zeroes
+	rts
+
+EdAdjust:	mvw	SelItem,A0	; check for top level shifts
+	ldy	#0
+	lda	(A0),y
+	cmp	#21	; only the top level needs it
+	beq	10$
+	rts
+10$:	avw	#4,R11	; line up the right edge
+	mvw	R11,Temp	; save this please
+	jsr	ClrBottom	; do a pseudo close
+	jsr	LoadR2	; get dimensions into R2-R4
+	jsr	ClrTop2	; now clear from here right
+	mvw	SelItem,A0	; check for top level shifts
+	jsr	LoadR2	; re-get dimensions into R2-R4
+	mvw	Temp,R11	; restore R11 for boundry compare
+	ldb	AdjCod,#21	; get this ready for the adjust
+	cpw	R11,R4
+	bge	11$
+	ldb	AdjTyp,#0	; set a leftward movement svw
+	sbw	R11,R4	; subtract new from the old
+	mvw	R4,AdjAmt	; amount to subtract the rest
+	bra	12$
+11$:	ldb	AdjTyp,#1	; set a rightward movement adw
+	sbw	R4,R11
+	mvw	R11,AdjAmt	; amount to add to rest
+12$:	mvw	Temp,R4	; the first one is now done.
+	jsr	SaveR2
+	jsr	MyBrother	; get my brother
+	beq	13$
+	mvw	SelItem,A0	; no brothers, so just exit
+	jsr	DrMenuItm
+	rts		; bye!
+13$:	jsr	CelAdjust	; move all other cells please
+	jsr	DrawTop	; and unwrap all top levels
+	rts		; and exit please
+
+
+LdDims:	ldw	A6,#6	; 6 byte data move to R2L
+	ldy	#0
+10$:	lda	(A5),y
+	sta	(A6),y
+	iny
+	cpy	#6
+	blt	10$
+	rts
+SvDims:	ldw	A6,#6	; 6 byte data move from R2L
+	ldy	#0
+10$:	lda	(A6),y
+	sta	(A5),y
+	iny
+	cpy	#6
+	blt	10$
+	rts
+
+
+
+LoadR2:	mvw	A0,A5
+	avw	#4,A5	; get table pointer
+	ldw	A6,#6	; destination is R2...
+	jmp	TabSv	; now convert over
+
+SaveR2:	ldw	A5,#6
+	mvw	A0,A6
+	avw	#4,A6
+	jmp	TabLd
+
+TabPut:	sta	(A6),y	; support for TabSv
+	iny
+	rts
+TabSv:	ldy	#0	; 6 byte conv from tabA5->geoA6
+10$:	lda	(A5),y
+	sta	TableTmp,y
+	iny
+	cpy	#6
+	blt	10$
+	ldy	#0
+	lda	TableTmp+2	; get the start y
+	jsr	TabPut
+	lda	TableTmp+5	; get the end y
+	jsr	TabPut
+	lda	TableTmp+0	; get the start x lb
+	jsr	TabPut
+	lda	TableTmp+1	; get the start x hb
+	jsr	TabPut
+	lda	TableTmp+3	; get the end x lb
+	jsr	TabPut
+	lda	TableTmp+4	; get the end x hb
+	jsr	TabPut
+	rts		; all done, easy as pie
+TabGet:	lda	(A5),y	; support for TabLd
+	iny
+	rts
+TabLd:	ldy	#0	; 6 byte conv from geoA5->tabA6
+	jsr	TabGet
+	sta	TableTmp+2	; get the start y
+	jsr	TabGet
+	sta	TableTmp+5	; get the end y
+	jsr	TabGet
+	sta	TableTmp+0	; get the start x lb
+	jsr	TabGet
+	sta	TableTmp+1	; get the start x hb
+	jsr	TabGet
+	sta	TableTmp+3	; get the end x lb
+	jsr	TabGet
+	sta	TableTmp+4	; get the end x hb
+	ldy	#0	; UnTableTmpiZe the data block
+10$:	lda	TableTmp,y
+	sta	(A6),y
+	iny
+	cpy	#6
+	blt	10$
+	rts		; all done, easy as pie
+
+Mod2Recv:	jsr	RecoverRectangle
+	rts
+
+Mod2Drag:	lda	SelBox
+	bne	11$
+10$:	rts
+11$:	mvb	mouseYPos,ChkPlace
+	mvw	mouseXPos,ChkPlace+1	 ; save the x pos
+	mvw	rightMargin,WorkTxt+96
+	svw	#20,WorkTxt+96		; get a working right margin
+	cpb	ChkPlace,SelBox
+	blt	10$	; no higher than allowed
+	cpb	ChkPlace,SelBox+1; no lower than allowed
+	bgt	10$
+	cpw	ChkPlace+1,SelBox+2
+	blt	10$	; no more left than allowed
+	cpw	ChkPlace+1,WorkTxt+96
+	bgt	10$	; no righter than allowed
+	ldw	A5,#SelBox
+	jsr	LdDims
+	jsr	RecoverRectangle	; make old box disappear!
+	mvw	ChkPlace+1,SelBox+4
+	ldw	A5,#SelBox
+	jsr	LdDims
+	ldb	dispBufferOn,#ST_WR_FORE
+	lda	#%10101010
+	jsr	FrameRectangle	; draw the durn thing
+	rts
+
+Mod2Press:	lda	keyVector
+	bne	10$	; only do this if input is OFF!!
+	cwi	SelItem,#0
+	beq	10$	; have we selected anything?
+	jsr	GetNextChar
+	cmp	#0
+	bne	11$
+10$:	rts		; nothing done!
+11$:	cmp	#$1d	; this is backspace?
+	bne	10$	; only care about this one
+	jsr	i_ChkClick	; nope, nothing to do
+	.byte	3
+	jsr	InvertRectangle	; invert the delete button
+	jsr	DelSelItem
+	rts		; exit anyways..
+
+PutAPlus:	ldw	FounDims,#DEFMLFT
+	ldw	FounDims+3,#DEFMRIT	; default for only plus
+	ldb	FounDims+2,#DEFMTOP	; only need the right
+	ldb	FounDims+5,#DEFMBOT
+	jsr	FindMeLast	; find the subitems of selected
+10$:	cwi	A0,#0	; see what FindMeLast found
+	beq	13$
+	ldy	#4	; now get dimensions of last
+12$:	lda	(A0),y
+	sta	FounDims-4,y	; get the found box dims
+	iny
+	cpy	#10
+	blt	12$
+13$:	cbi	PlusType,#$80	; VERTICAL
+	bne	15$	; skip the verticals for now
+	mvw	FounDims,R3	; VERTICAL = !
+	mvw	FounDims+3,R4	; keep the same x coords
+	mvb	FounDims+5,R2L	; bottom becomes top
+	cmp	#DEFMBOT
+	bne	14$
+	inc	R2L
+14$:	mvb	R2L,R2H
+	avb	#14,R2H	; and the standard y move
+	bra	20$
+15$:	mvb	FounDims+2,R2L	; HZONTAL keep the same y coords
+	mvb	FounDims+5,R2H	; HORIZONTAL = ----
+	mvw	FounDims+3,R3	; right becomes left
+	mvw	R3,R4
+	avw	#16,R4	; and a little more to the right
+20$:	jmp	PutAClk
+
+FindMeLast:		; * SelItem should point to starting place
+	ldb	PlusType,#$40	; HORZONTAL
+	mvw	SelItem,A0	; set work pointer as selitem
+	mvw	SelItem,Temp	; default found to the selected item
+	cwi	SelItem,#0	; see if anythings selected
+	bne	10$	; if not, top level case...
+	jsr	FstItem	; start from the top of buffer
+	ldb	Find4Me,#21	; default for top level
+	bra	12$	; start a top level search
+10$:	ldy	#0
+	lda	(A0),y
+	sta	Find4Me
+	inc	Find4Me	; always SelLevel +1
+	jsr	NxtItem	; look ahead for the first one
+12$:	cpw	A0,EndOData
+	beq	15$
+	ldy	#0
+	lda	(A0),y	; grab the code, please
+	beq	15$	; a Zero is universal end
+	cmp	Find4Me	; now compare it to our look4
+	beq	14$	; either we find one
+	blt	15$	; or the end end (look4 > x > 20)
+13$:	jsr	NxtItem
+	bra	12$	; always returns a menu coder
+14$:	mvw	A0,Temp
+	ldb	PlusType,#$80	; VERTICAL
+	bra	13$
+15$:	mvw	A0,NextHere	; next one is before the end
+	mvw	Temp,A0	; and restore the Last Item
+	cwi	SelItem,#0
+	beq	16$	; final top level adjustments
+	cbi	SelLevel,#21
+	bne	17$
+	ldb	PlusType,#$80	; VERTICAL
+	bne	17$
+16$:	ldb	PlusType,#$40	; HORZONTAL
+17$:	rts
+
+PutAClk:	ldw	A5,#PlusBox
+	jsr	SvDims	; save for posterity
+	jsr	i_WSetClick
+	.word	0	; no execution routine, please
+	.byte	2	; set the first click
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	lda	#$ff
+	jsr	FrameRectangle	; draw the damn thing
+	jsr	PutAMid
+	svw	#5,R3
+	avw	#5,R4
+	mvb	R11L,R11H
+	lda	#0
+	sec
+	jsr	DrawLine	; horiZontal line drawn
+	jsr	PutAMid
+	svb	#4,R11L
+	avb	#4,R11H
+	mvw	R3,R4
+	lda	#0
+	sec
+	jsr	DrawLine	; vertical line drawn
+	rts
+
+PutAMid:	mvw	PlusBox,R11
+	mvw	PlusBox+2,R3
+	mvw	PlusBox+4,R4	; reget the box for a line
+16$:	cpw	R3,R4
+	bge	17$
+	inw	R3
+	dew	R4
+	bra	16$
+17$:	cpb	R11L,R11H
+	bge	18$
+	inc	R11L
+	dec	R11H
+	bra	17$
+18$:	rts
+
+FstItem:	ldw	A0,#DataStart
+	cpw	A0,EndOData	; if starts at end, forget it
+	beq	10$
+	ldy	#0	; otherwise, see if its good
+	lda	(A0),y
+	cmp	#20	; a non-code is useless
+	ble	NxtItem
+	cmp	#49
+	bgt	NxtItem	; >49 is a non-code too
+10$:	rts
+NxtItem:	cpw	A0,EndOData
+	blt	10$
+	rts
+10$:	ldy	#2	; get this items length
+	lda	(A0),y
+	sta	NextTmp
+	iny
+	lda	(A0),y	; and store it in NxtTmp
+	sta	NextTmp+1
+	adw	NextTmp,A0	; add it to A0
+	ldy	#0
+	lda	(A0),y
+	cmp	#20	; a non-code is useless
+	ble	NxtItem
+	cmp	#49
+	bgt	NxtItem	; >49 is a non-code too
+	rts
+
+PrvItem:	mvw	A0,WorkTxt+96	; one looked for
+	cwi	A0,#DataStart	; cant find one before first
+	beq	15$
+	ldw	A0,#DataStart
+10$:	cpw	A0,EndOData	; dont go beyond the end
+	bge	15$
+	ldy	#2
+	lda	(A0),y	; get the skip bytes this one
+	sta	NextTmp
+	iny
+	lda	(A0),y
+	sta	NextTmp+1
+	adw	A0,NextTmp	; put one after in NextTmp
+	cpw	NextTmp,WorkTxt+96	; see if one after is one looked 4
+	beq	14$	; A0 still has one before
+	mvw	NextTmp,A0	; nope, so put in next and keep
+	bra	10$	; going...
+14$	ldy	#0	; now see if it is a menu code
+	lda	(A0),y
+	cmp	#20	; a non-code is useless
+	ble	PrvItem
+	cmp	#49
+	bgt	PrvItem	; >49 is a non-code too
+15$:	rts
+
+
+PrepS:	ldb	StackX,#0
+	rts
+PushS:	ldx	StackX
+	lda	A5L
+	sta	Stack,x
+	inx
+	lda	A5H
+	sta	Stack,x
+	inc	StackX
+	inc	StackX
+	rts
+PullS:	ldx	StackX
+	bne	10$
+	rts
+10$:	dec	StackX
+	dec	StackX
+	ldx	StackX
+	lda	Stack,x
+	sta	A5L
+	inx
+	lda	Stack,x
+	sta	A5H
+	rts
+
+DelSelItem:	cwi	SelItem,#0	; is anything selected?
+	bne	10$
+99$:	jsr	i_ChkClick	; nope, nothing to do
+	.byte	3
+	jmp	InvertRectangle
+10$:	mvw	SelItem,A0	; is it a menu?  check..
+	ldy	#1
+	lda	(A0),y
+	cmp	#$00	; MENU_ACTION
+	beq	12$	; if not, put up a yes/no box
+	ldw	A2,#DELBOX
+	jsr	YNBox
+	cbi	sysDBData,#3	; confirm the procedure
+	bne	99$	; NO, so exit..
+12$:	ldy	#0
+	lda	(A0),y
+	sta	AdjCod	; store its code, for redraw
+	jsr	GetWidth
+	ldw	AdjAmt,#14	; assume a up/down vertical adj
+	cbi	AdjCod,#21
+	bne	14$	; always delete this one
+	mvw	Temp,AdjAmt	; if horiZontal, use the width
+	bra	14$	; always delete THIS one
+13$:	cpw	A0,EndOData
+	beq	17$	; if at the end, then done
+	ldy	#0
+	lda	(A0),y	; look at this ones code
+	cmp	AdjCod
+	blt	17$	; if at higher level, done
+	beq	15$	; if at same level, more work...
+14$:	ldw	RoomTmp,#0	; the destination is ME!
+	ldy	#2
+	lda	(A0),y
+	sta	Temp+7	; get this items length
+	iny
+	lda	(A0),y	; so that we point to the new one
+	sta	Temp+8
+	mvw	A0,Temp+5
+	jsr	CapBack	; now delete it
+	mvw	Temp+5,A0
+	bra	13$	; go back for more
+15$:	ldb	AdjTyp,#0	; set subtract adjustment
+	jsr	CelAdjust
+17$:	jmp	DelDone
+DELBOX:	.byte	$18,"Delete this menu set?",27,0
+
+DelDone:	mvw	SelPapy,A0	; check for papy status
+	cwi	A0,#0
+	beq	17$	; if no papy, go bye bye
+	cbi	SelLevel,#20
+	ble	17$	; if sel level is off, so are you
+14$:	jsr	NxtItem	; a papy, so look at next
+	cpw	A0,EndOData	; have we reached the end?
+	beq	16$
+	ldy	#0
+	lda	(A0),y	; get next item's code
+	cmp	SelLevel	; have we found a brother?
+	beq	17$	; yes, so don't convert!
+16$:	mvw	SelPapy,A0	; restore papy pointer
+	ldy	#1	; no, so convert to an action
+	lda	#$00	; MENU_ACTION
+	sta	(A0),y
+17$:	jsr	USelThis	; DONE.  Unselect this item
+	jsr	ClrBottom	; clear extraneous stuff
+	cbi	AdjCod,#21
+	bne	18$	; if not a top level, dont redraw
+	jsr	ClrTop	; clear whole top level
+	jsr	DrawTop	; redraw the top level
+18$:	cwi	SelPapy,#0
+	beq	19$	; if no papy, go bye bye
+	mvw	SelPapy,A0	; select my papy if ok
+	jsr	SelThisI
+	jsr	PutAPlus	; put the plus mark back
+19$:	jsr	i_ChkClick	; now unhighlight the del button
+	.byte	3	; all done, bye bye now
+	jmp	InvertRectangle
+
+CelAdjust:	cpw	A0,EndOData
+	bne	11$	; if at end, then done
+10$:	ldb	SaveFlag,#1
+	rts
+11$:	ldy	#0
+	lda	(A0),y	; now check this ones code
+	cmp	AdjCod
+	blt	10$	; if reached higher level, done
+	jsr	LoadR2
+	lda	AdjTyp
+	bne	14$
+	cbi	AdjCod,#21	; is it top level?
+	bne	12$	; if yes, adjust differently
+	sbw	AdjAmt,R3
+	sbw	AdjAmt,R4	; move top levels left
+	bra	13$
+12$:	sbb	AdjAmt,R2L
+	sbb	AdjAmt,R2H	; pull lower level siblings, UP
+13$:	jsr	SaveR2	; put R2 back into table
+	jsr	NxtItem	; look at what's next
+	jmp	CelAdjust	; and go back for more
+14$:	cbi	AdjCod,#21	; is it top level?
+	bne	15$	; if yes, adjust differently
+	adw	AdjAmt,R3
+	adw	AdjAmt,R4	; move top levels right
+	bra	13$
+15$:	adb	AdjAmt,R2L
+	adb	AdjAmt,R2H	; push lower level siblings, down?
+	bra	13$
+
+
+
+MyBrother:	cpw	A0,EndOData	; reached the end? bad!
+	bge	11$
+	ldy	#0	; get its code
+	lda	(A0),y
+	sta	Temp
+10$:	jsr	NxtItem	; go to the next
+	cpw	A0,EndOData	; reached the end? bad!
+	blt	12$
+11$:	ldx	#$ff	; return a NO SIR
+	rts
+12$:	ldy	#0	; keep a lookin
+	lda	(A0),y
+	cmp	Temp
+	bne	10$	; if its not one, keep looking
+	rts		; kaplah!
+
+GetWidth:	jsr	LoadR2
+	sbw	R3,R4	; subtract left from/to right
+	mvw	R4,Temp	; and save it in Temp
+	rts
+
+EdtCon:
+<img src="00265.png" />
+
+DelCon:
+<img src="00266.png" />
+
+.ramsect
+;***** Stack variables
+Stack:	.block	50	; THE stack
+StackX:	.block	1
+CurrOne:	.block	2
+
+;***** Temporary storage
+RoomTmp:	.block	2	; byte total for gimmi room
+WorkTxt:	.block	100	; work text area
+SaveReg:	.block	10	; A0, ...
+TableTmp:	.block	7	; block storage for tabLd,tabSv
+
+
+;***** For EditBox work
+AdjCod:	.block	1	; adjust code, horiZontal or vert
+AdjTyp:	.block	1	; how to adjust, 0=s, N=a
+AdjAmt:	.block	2	; amount to adjust cells by
+</pre></body></html>

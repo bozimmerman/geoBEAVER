@@ -1,0 +1,582 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;******************************
+;*  S/geoBMode1b
+;*
+;******************************
+
+.if 	Pass1
+.noeqin
+.noglbl
+.include	GEOSequates
+.eqin
+.glbl
+.endif
+
+
+
+	.psect
+
+Mod1Press:	lda	SelMove
+	beq	10$	; have we selected anything?
+	jsr	GetNextChar
+	cmp	#0
+	bne	11$
+10$:	rts		; nothing done!
+11$:	cmp	#$1d	; this is backspace?
+	bne	10$	; only care about this one
+	mvb	SelItem,R15L	; for destination = R14
+	sta	R14L	; for start=R15
+	mvb	SelItem+1,R15H
+	sta	R14H
+	ldy	#2	; get the bytes long
+	lda	(R14),y
+	sta	Temp+14	; width for EndOData
+	iny
+	lda	(R14),y
+	sta	Temp+15	; width for EndOData
+	adw	Temp+14,R14	; now have start move
+	jsr	ClrSelect	; and now clear out the selection
+	ldw	A2,#PTxt0
+	jsr	YNBox
+	cbi	sysDBData,#3	; confirm the procedure
+	beq	12$
+	jmp	UnScrnMod	; cancelled, so clear full screen
+12$:	ldy	#0	; start the copy
+13$:	cwi	R14,#DataEndP
+	beq	14$
+	lda	(R14),y
+	sta	(R15),y	; shuffle the data left
+	inw	R14
+	inw	R15
+	bra	13$
+14$:	sbw	Temp+14,EndOData ; get the new endodata
+	jsr	ClrBuf2End	; Zero out the new end
+	ldb	SaveFlag,#1	; deleting is a savable offence
+	jmp	ReMain1	; and redraw the whole damn screen
+PTxt0:	.byte	$18,"Delete this item?",27,0
+
+SelClick:	lda	SelMove
+	beq	12$	; have we selected anything?
+	ldw	A5,#SelResi
+	jsr	SelLoad
+	jsr	IsMseInRegion	; resiZe box clicked?
+	cmp	#$ff
+	bne	10$
+	jsr	ClrSelLines
+	ldb	DragFlag,#1
+	ldb	SelTool,#2	; set for resiZe tool
+	rts
+10$:	ldw	A5,#SelMove
+	jsr	SelLoad
+	jsr	IsMseInRegion	; mvw box clicked?
+	cmp	#$ff
+	bne	11$
+	jsr	ClrSelLines
+	ldb	DragFlag,#1
+	ldb	SelTool,#1	; set for move tool
+	rts
+11$:	lda	SelMove	; is anything selected?
+	beq	12$
+	ldw	A5,#SelBox	; yes, but...
+	jsr	SelLoad
+	jsr	IsMseInRegion	; was the old box clicked?
+	cmp	#$ff
+	bne	18$
+	lda	dblClickCount	; yes, but are we double-clicking?
+	beq	18$
+	ldb	dblClickCount,#0	; for accounting purposes
+	ldb	mouseYPos,#170
+	jmp	PattEdit
+18$:	ldb	dblClickCount,#50	 ; reload doubleclick counter
+	jsr	ClrSelect	; clear out old selection
+12$:	jmp	SelLook
+
+SelLook:	cwi	EndOData,#DataStart ; anything to find?
+	bgt	13$	; nope, so exit
+	rts
+13$:	mvw	EndOData,A3	; start from the end
+14$:	lda	SelMove	; stupid, redundant check!
+	bne	15$	; already got one, so exit!
+	cwi	A3,#DataStart
+	bgt	16$	; nothing found, damn
+	lda	SelMove
+	bne	15$	; anything selected? yes, so skip nxt
+	jsr	UnScrnMod	; unfullscreenmode if necessary
+15$:	rts
+16$:	jsr	FindLast
+	mvw	A1,A3	; make the last the end
+	ldy	#0
+	lda	(A1),y
+	cmp	#5	; lines, linebox, and fbox are easy
+	bge	17$
+	jsr	SelLChk
+	bne	14$
+	rts
+17$:	cmp	#5	; text tool
+	bne	18$
+	jsr	SelTChk
+	bne	14$
+	rts
+18$:	cmp	#8	; 6 or 7 is bitmap/icon
+	bge	14$	; invalid tool?
+	jsr	SelBChk
+	bne	14$
+	rts
+
+FindLast:	ldw	A0,#DataStart	; start at beginning
+	ldw	A2,#0	; with no movement, bytes=A2
+12$:	mvw	A0,A1	; save the last move
+	adw	A2,A0	; skip ahead = A0
+	ldy	#2
+	lda	(A0),y	; get the supposed bytes L & h
+	sta	A2L
+	iny
+	lda	(A0),y	; get the supposed bytes l & H
+	sta	A2H
+	cpw	A0,A3	; have we reached the end yet?
+	blt	12$	; no, so keep looping
+	rts		; A1 should point to last now
+
+SelLChk:	ldy	#4
+10$:	lda	(A1),y
+	sta	Temp,y	; store the easy coords in Temp+4..
+	iny
+	cpy	#10
+	bne	10$
+	jsr	SelChk	; now check for it
+	mvw	A1,SelItem	; save the item selected
+	rts		; success is already in .x
+
+
+
+SelBChk:	ldy	#4	; time to do the bitmaps!!!
+	lda	(A1),y
+	sta	Temp+4	; get the ok ys and the char xs
+	iny
+	lda	(A1),y
+	sta	Temp+6
+	ldb	Temp+5,#0
+	sta	Temp+8
+	iny
+	lda	(A1),y
+	sta	Temp+7
+	iny
+	lda	(A1),y
+	sta	Temp+9	; now time to math the xs
+	asl	Temp+4	; multiply by two
+	rol	Temp+5
+	asl	Temp+4	; multiply by four
+	rol	Temp+5
+	asl	Temp+4	; multiply by eight
+	rol	Temp+5
+	asl	Temp+7	; multiply by two
+	rol	Temp+8
+	asl	Temp+7	; multiply by four
+	rol	Temp+8
+	asl	Temp+7	; multiply by eight
+	rol	Temp+8
+	adb	Temp+6,Temp+9 ; have to add top to height
+	adw	Temp+4,Temp+7 ; have to add width to left
+	jsr	SelChk	; now we can check!!! yea!!!
+	mvw	A1,SelItem	; save the item selected
+	rts		; success is already in .x
+
+SelTChk:	ldy	#4
+10$:	lda	(A1),y
+	sta	Temp,y	; store the easy coords in Temp+4..
+	iny
+	cpy	#10
+	bne	10$
+	jsr	SelChk	; now we can check!!! yea!!!
+	mvw	A1,SelItem	; save the item selected
+	rts		; success is already in .x
+
+SelChk:	jsr	SelMvTmp
+	cpb	R2L,R2H	; do they-y need swapping
+	blt	10$
+	mvb	Temp+6,R2H
+	mvb	Temp+9,R2L
+	sta	Temp+6
+	mvb	R2H,Temp+9	; fix it permanently
+10$:	cpw	R3,R4	; do they-x need swapping
+	blt	11$
+	mvw	Temp+7,R3
+	mvw	Temp+4,R4
+	mvw	Temp+7,Temp+4
+	mvw	R4,Temp+7	; fix it permanently
+11$:	jsr	IsMseInRegion	; now finally check!
+	cmp	#$ff
+	beq	12$
+	ldx	#$ff
+	rts		; nope, so return error
+12$:	jmp	SelDo
+
+SelDo:	; ** see bottom for notes
+12$:	ldb	dispBufferOn,#ST_WR_FORE
+	ldw	A5,#SelBox
+	jsr	SelSave	; save the dotted box, please
+	ldw	A5,#OSelBox
+	jsr	SelSave	; and again for posterity
+	lda	#%10101010
+	jsr	FrameRectangle	; make the sel frame please
+	lda	#2
+	jsr	SetPattern	; prepare to make two boxes
+	jsr	SelMvTmp
+	mvb	R2L,R2H
+	avb	#5,R2H	; move a little off top
+	cpb	R2H,windowBottom	
+	ble	13$	; just make sure y is ok
+	mvb	windowBottom,R2H
+13$:	mvw	R3,R4
+	avw	#10,R4	; move a little off left
+	cpw	R4,rightMargin
+	ble	14$	; just make sure x is ok
+	mvw	rightMargin,R4
+14$:	ldw	A5,#SelMove	; good to go
+	jsr	SelSave
+	jsr	Rectangle	; and make it!!!	
+	jsr	SelMvTmp	; now for resiZe box
+	mvb	R2H,R2L
+	svb	#5,R2L	; move a little off top
+	cpb	R2L,windowBottom	
+	ble	15$	; just make sure y is ok
+	ldb	R2L,#0
+15$:	mvw	R4,R3
+	svw	#10,R3	; move a little off left
+	cpw	R3,rightMargin
+	ble	16$	; just make sure x is ok
+	ldw	R4,#0
+16$:	ldw	A5,#SelResi	; good to go
+	jsr	SelSave
+	jsr	Rectangle	; and make it!!!	
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	ldx	#0	; return success!!
+	rts
+;** there is a bug in these routines that makes its return code
+;** incorrect.  This has caused heartache, and much patching
+;** so far.  fix it, dammit.
+
+SelMvTmp:
+	mvb	Temp+6,R2L	; setup move box region
+	mvb	Temp+9,R2H
+	mvw	Temp+4,R3
+	mvw	Temp+7,R4
+	rts
+
+SelSave:	ldw	A6,#6	; R2L
+	ldy	#0
+10$:	lda	(A6),y
+	sta	(A5),y
+	iny
+	cpy	#6
+	blt	10$
+	rts
+
+
+
+SelLoad:	ldw	A6,#6	; R2L
+	ldy	#0
+10$:	lda	(A5),y
+	sta	(A6),y
+	iny
+	cpy	#6
+	blt	10$
+	rts
+
+ClrSelect:	lda	SelMove
+	bne	99$
+	rts		; nothing to do!!
+99$:	jsr	ClrSelLines
+	ldb	SelMove,#0
+	ldw	SelItem,#0
+	ldb	DragFlag,#0	; clear out the drag flag
+	rts		; now all recovered!
+
+ClrSelLines:	ldw	A5,#SelResi	
+	jsr	SelLoad	; get bottom right from resiZe box
+	mvw	R2,Temp
+	mvw	R3,Temp+2
+	mvw	R4,Temp+4
+	ldw	A5,#SelMove
+	jsr	SelLoad	; get top left from move box
+	cpb	R2L,Temp	; make sure we get it all!
+	blt	10$
+	mvb	Temp,R2L
+10$:	cpb	R2H,Temp+1
+	bge	11$
+	mvb	Temp+1,R2H
+11$:	cpw	R3,Temp+2
+	blt	12$
+	mvw	Temp+2,R3
+12$:	cpw	R4,Temp+4
+	bge	13$
+	mvw	Temp+4,R4
+13$:	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	jmp	RecoverRectangle
+
+DragSel:	; ** needs to do click, and unclick, move, and resiZe
+	ldw	A5,#SelBox	; set up old dimensions for all ops
+	jsr	SelLoad
+	jsr	RecoverRectangle	; first undo the old box
+	ldw	A5,#SelBox	; restore old position
+	jsr	SelLoad
+	cbi	DragFlag,#2
+	bne	10$
+	jmp	SelUnDrag
+10$:	cbi	SelTool,#1	; are we moving or resiZing?
+	bne	13$
+	lda	Temp+2 ; we are moving...
+	sub	R2L
+	add	R2H
+	sta	R2H
+	mvb	Temp+2,R2L
+	mvw	Temp,Temp+3 ; the new x, for safe keeping
+	sbw	R3,Temp+3
+	adw	Temp+3,R4
+	cpb	R2H,windowBottom
+	bgt	99$	; check to see if too far down
+	cpw	R4,rightMargin
+	ble	11$
+99$:	ldw	A5,#SelBox	; too far right, so quietly exit
+	jsr	SelLoad
+	bra	12$
+11$:	mvw	Temp,R3
+12$:	ldw	A5,#SelBox
+	jsr	SelSave
+	lda	#%10101010
+	jsr	FrameRectangle	; ** here is move code
+	rts
+13$:	cpb	Temp+2,SelBox	; can't resiZe past the top
+	ble	12$
+	cpw	Temp,SelBox+2
+	ble	12$	; or resiZe past the left
+	mvb	Temp+2,R2H
+	mvw	Temp,R4
+	bra	12$		; ** here is resiZe code
+
+	
+SelPut:	sta	(A0),y
+	iny
+	rts	
+
+
+SelUnDrag:	mvw	SelItem,A0	; restore old item pointer
+	ldy	#0
+	lda	(A0),y	; get the affected tool
+	cmp	#5
+	blt	10$	; line, fbox, or lbox?
+	jmp	SelRest	; next page for icon/bitmap/text
+10$:	jsr	UnWrBox	; get old box dims into R2-R4
+	ldw	A6,#SelBox	; to compare against new space
+	ldw	A7,#OSelBox
+	ldy	#0
+11$:	lda	(A6),y	; see if anything changed...
+	sta	Temp,y	; saving for funs sake
+	cmp	(A7),y
+	bne	13$
+	iny
+	cpy	#6
+	blt	11$
+12$:	ldb	SelMove,#0
+	ldw	SelItem,#0
+	ldb	DragFlag,#0	; clear out the drag flag
+	rts
+13$:	ldy	#0
+	lda	(A0),y	; check what im unselling 1 mo time
+	cmp	#1
+	bne	14$
+	jsr	SelUnLine	; the damn LINE exception
+	beq	14$
+	jmp	SelOut
+14$:	ldy	#4	; something did, so...
+	lda	SelBox+2
+	jsr	SelPut	; write new dimensions
+	lda	SelBox+3
+	jsr	SelPut
+	lda	SelBox
+	jsr	SelPut
+	lda	SelBox+4
+	jsr	SelPut
+	lda	SelBox+5
+	jsr	SelPut
+	lda	SelBox+1
+	jsr	SelPut
+SelOut:	ldb	SelMove,#0
+	ldw	SelItem,#0
+	ldb	DragFlag,#0	; clear out the drag flag
+	ldb	SaveFlag,#1	; you must save
+	jmp	ReMain1	; redo the whole damn screen
+
+
+
+SelRest:	ldy	#0
+	lda	(A0),y	; get the affected tool
+	cmp	#5
+	beq	20$	; save the hardest for last (text)	
+	cbi	SelTool,#1
+	beq	11$	; only move is relevant for these...
+10$:	ldb	SelMove,#0
+	ldw	SelItem,#0
+	ldb	DragFlag,#0	; clear out the drag flag
+	rts
+11$:	lsr	SelBox+3	; start division baby
+	ror	SelBox+2
+	lsr	SelBox+2
+	lsr	SelBox+2	; division by eight?
+	ldy	#5	; have we moved up or down?
+	lda	(A0),y
+	cmp	SelBox
+	bne	12$	; yes, so go ahead
+	dey
+	lda	(A0),y	; no up/down, so check r/l
+	cmp	SelBox+2
+	beq	10$	; no movement, so exit
+12$:	ldy	#4
+	lda	SelBox+2
+	jsr	SelPut
+	lda	SelBox	; reposition the bitmap
+	jsr	SelPut
+	jmp	SelOut	; starting text below
+20$:	cbi	SelTool,#2	; no resiZing of text, moves are ok
+	beq	21$
+	ldy	#4
+	jsr	UnWrapGet	; get startx, then y
+	sta	R3L
+	jsr	UnWrapGet
+	sta	R3H
+	jsr	UnWrapGet
+	sta	R2L
+	cpb	R2L,SelBox	; check for y move
+	bne	22$
+	cpw	R3,SelBox+2	; now confirm a x move
+	bne	22$
+21$:	ldb	SelMove,#0	; no move, so quiet exit
+	ldw	SelItem,#0
+	ldb	DragFlag,#0	; clear out the drag flag
+	rts
+22$:	ldy	#4	; something did, so...
+	lda	SelBox+2
+	jsr	SelPut	; write new dimensions
+	lda	SelBox+3
+	jsr	SelPut
+	lda	SelBox
+	jsr	SelPut
+	lda	SelBox+4
+	jsr	SelPut
+	lda	SelBox+5
+	jsr	SelPut
+	lda	SelBox+1
+	jsr	SelPut
+	jmp	SelOut
+
+SelUnLine:	cbi	SelTool,#1	; if we are moving, its easy!
+	bne	50$	; resiZe is harder	
+	jsr	UnWrBox	; get old dimensions into R2-R4
+	cpb	R2L,R2H
+	php
+	mvb	SelBox,R2L
+	mvb	SelBox+1,R2H
+	plp
+	bge	10$
+	mvb	SelBox+1,R2L
+	mvb	SelBox,R2H
+10$:	cpw	R3,R4
+	php
+	mvw	SelBox+2,R3
+	mvw	SelBox+4,R4
+	plp
+	bge	11$
+	mvw	SelBox+4,R3
+	mvw	SelBox+2,R4
+11$:	ldw	A5,#SelBox	; fake like its the new box
+	jsr	SelSave
+	lda	#0	
+	rts		; let normal routines do the rest!
+50$:	mvw	A0,R1	; now find the low point
+	mvw	A0,R0
+	avw	#4,R1	; assume its the first y
+	avw	#7,R0
+	ldy	#9	; so...
+	lda	(A0),y	; grab the second y
+	ldy	#2
+	cmp	(R1),y	; compare to the first
+	blt	51$	; if i was right, don't swap
+	mvw	R1,R0
+	avw	#3,R1	; i was wrong..
+51$:	lda	SelBox+1
+	ldy	#2
+	sta	(R1),y	; apply the new bottom
+	ldy	#1	; now see if bottom is right
+	lda	(R1),y
+	cmp	(R0),y
+	bne	52$
+	dey
+	lda	(R1),y
+	cmp	(R0),y
+52$:	blt	53$
+	ldy	#0
+	lda	SelBox+4	; bottom is to right, so okee dokee
+	sta	(R1),y
+	iny
+	lda	SelBox+5
+	sta	(R1),y	; the easy parts are done
+	ldx	#1
+	rts
+53$:	ldy	#0
+	lda	SelBox+4	; bottom is left, so resiZe the right
+	sta	(R0),y
+	iny
+	lda	SelBox+5
+	sta	(R0),y	; this wont look TOOO bad.
+	ldx	#1
+	rts		; all done!
+
+PattEdit:	cpw	SelItem,#0		; this routine does edit on selected
+	bne	10$
+	rts		; meaningless if nothing selected
+10$:	mvw	SelItem,A0
+	ldy	#0
+	lda	(A0),y
+	cmp	#3	; is it a linebox?
+	bne	11$
+	ldw	R0,#LPatDlg
+	jsr	DoDlgBox
+	lda	LbxPattern	; new lined pattern
+	bra	99$
+	rts
+11$:	cmp	#4	; is it a filled box?
+	bne	13$
+	ldw	R0,#PattDlg
+	jsr	DoDlgBox
+	cbi	sysDBData,#32	; illegal pattern selection
+	bge	12$
+	lda	sysDBData	; new fill pattern
+	sta	FilPattern
+	bra	99$
+12$:	rts
+13$:	cmp	#5	; is it some text?
+	bne	14$
+	ldw	R0,#TPatDlg
+	jsr	DoDlgBox
+	cbi	sysDBData,#2
+	beq	12$	; cancel is bad
+	lda	Temp+19
+	sta	TxtPattern	; new text pattern
+	jsr	UnWrBox	; get R2-R4 -- for what its worth
+	jsr	UnWrTxt	; re-unwrap the text
+	ldy	#7
+	lda	R11L
+	sta	(A0),y	; re-adjust the right border
+	iny
+	lda	R11H
+	sta	(A0),y	; and get the msb
+	lda	TxtPattern
+	bra	99$
+14$:	ldw	A2,#NoPaText	; nothing valid, so don't do
+	jsr	CNCLBox
+	jmp	ReTool
+99$:	ldy	#1		; new pattern, so redraw it ALL!!!
+	sta	(A0),y	; save it
+	ldb	SaveFlag,#$01	; make the file dirty
+	jmp	ReMain1	; and redraw the screen, please
+</pre></body></html>
